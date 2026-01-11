@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  aiengine:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: aiengine
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./app:/app/app
+      - ./data:/app/data
+      - ./models:/app/models
+    env_file:
+      - .env
+    environment:
+      - ENV=development
+      - DATABASE_URL=sqlite+aiosqlite:///./data/aiengine.db
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+    restart: unless-stopped
+
+  # Optional: PostgreSQL for testing production setup locally
+  postgres:
+    image: postgres:16-alpine
+    container_name: aiengine-postgres
+    environment:
+      POSTGRES_DB: aiengine
+      POSTGRES_USER: aiengine
+      POSTGRES_PASSWORD: aiengine_dev_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    profiles:
+      - postgres
+
+volumes:
+  postgres_data:

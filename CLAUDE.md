@@ -6,24 +6,75 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 UMass AIEngine is a multi-stage chat facilitation AI system for the "Only-Human" chat application, specifically designed for Alzheimer's caregiver support groups on the FATHM platform. It determines when and how to inject facilitation messages into group conversations.
 
-## Running the Pipeline
+**Tech Stack:** FastAPI, SQLAlchemy, Pydantic, Alembic, OpenAI API, scikit-learn
+
+**Detailed specifications:** See DEVELOPMENT_PLAN.md
+
+## Quick Start
 
 ```bash
-# Activate environment
-source ~/.venvs/mass/bin/activate
+# Activate virtual environment
+source .venv/bin/activate
 
-# Run facilitation pipeline on a conversation file
-python facilitate.py <conversation_file.json>
+# Run database migrations
+alembic upgrade head
 
-# With options
-python facilitate.py conversation.json --model-path models/temporal_classifier.pkl --llm-model gpt-4o-mini --output results.json
+# Start development server
+python -m app.main
+# Server runs at http://localhost:8000
+# API docs at http://localhost:8000/docs
 ```
 
-**Prerequisites**: Python 3, openai, python-dotenv, joblib, numpy
+## Application Structure
 
-**Environment**: Set `OPENAI_API_KEY` in `.env` file
+```
+app/
+├── main.py              # FastAPI application entry point
+├── config.py            # Environment configuration (Pydantic Settings)
+├── dependencies.py      # Dependency injection (database sessions)
+│
+├── api/
+│   ├── routes/
+│   │   ├── health.py        # Health check endpoint
+│   │   ├── messages.py      # Webhook for incoming messages (Phase 2)
+│   │   └── facilitation.py  # Facilitation endpoints (Phase 2)
+│   └── middleware/
+│       └── auth.py          # API key authentication (Phase 2)
+│
+├── core/
+│   ├── pipeline.py          # FacilitationDecisionPipeline (Phase 2)
+│   ├── feature_extractor.py # TemporalFeatureExtractor (Phase 2)
+│   └── scheduler.py         # APScheduler for batch jobs (Phase 3)
+│
+├── models/
+│   ├── database.py      # SQLAlchemy models (Chatroom, Message, FacilitationLog)
+│   └── schemas.py       # Pydantic schemas for API validation
+│
+└── services/
+    ├── message_service.py      # Message CRUD operations (Phase 2)
+    ├── facilitation_service.py # Pipeline orchestration (Phase 2)
+    └── llm_service.py          # OpenAI API wrapper (Phase 2)
+```
 
-## Architecture
+## Tech Stack Explained
+
+### **SQLAlchemy** (Database ORM)
+- Converts Python classes ↔ database tables
+- Type-safe database operations without writing SQL
+- Example: `chatroom = await session.get(Chatroom, external_id="abc")`
+
+### **Pydantic** (Data Validation)
+- Validates incoming/outgoing API data automatically
+- FastAPI uses it to ensure correct data types before reaching your code
+- Example: `WebhookMessageRequest` ensures `group_id` is string, `timestamp` is datetime
+
+### **Alembic** (Database Migrations)
+- Version control for database schema changes
+- Safely update database structure without losing data
+- Generate migration: `alembic revision --autogenerate -m "description"`
+- Apply migration: `alembic upgrade head`
+
+## Facilitation Pipeline Architecture
 
 The system implements a 3-stage decision pipeline with early termination:
 
@@ -35,38 +86,37 @@ Stage 2: LLM Zero-Shot Verification (gpt-4o-mini)
 Stage 3: Generate Facilitation Message
 ```
 
-**Stage 1** uses a pre-trained Random Forest classifier on temporal features:
-- Message counts in 30min/1hr/3hr windows
-- Average gap between last 5 messages
-- Time since last message
+**Stage 1:** Pre-trained Random Forest classifier analyzes temporal features (message counts in windows, gaps between messages)
 
-**Stage 2** uses LLM to verify facilitation need based on conversation content, checking for staleness, conflict, distressed participants, topic dominance, or low engagement.
+**Stage 2:** LLM verifies facilitation need based on conversation content (staleness, conflict, distress, dominance, low engagement)
 
-**Stage 3** generates an empathetic facilitation message using techniques like open-ended questions, emotional validation, and gentle redirection.
+**Stage 3:** LLM generates empathetic facilitation message (open-ended questions, emotional validation, gentle redirection)
 
-## Key Components
+## Database Schema
 
-- `facilitate.py`: Main `FacilitationDecisionPipeline` class orchestrating all three stages
-- `feature_extractor.py`: `TemporalFeatureExtractor` class for computing temporal features from conversation timestamps
-- `models/temporal_classifier.pkl`: Pre-trained Random Forest model (loaded via joblib)
+- **chatrooms** - Group conversation metadata
+- **messages** - Individual chat messages with sender and timestamp
+- **facilitation_logs** - Pipeline execution results (stage decisions, generated messages)
 
-## Input Format
+Database file: `data/aiengine.db` (SQLite for development)
 
-Conversation JSON must contain messages with `sender`, `time` (HH:MM format), and `content` fields:
+## Development Workflow
 
-```json
-{
-  "conversation": [
-    {"sender": "Alice", "time": "14:30", "content": "Hello everyone"}
-  ]
-}
-```
+1. **Make code changes** in `app/`
+2. **Update database models?** Run `alembic revision --autogenerate -m "description"`
+3. **Apply migrations:** `alembic upgrade head`
+4. **Test endpoints:** Use http://localhost:8000/docs (Swagger UI)
+5. **Check logs:** Server outputs structured logs to stdout
 
-Also accepts `{"messages": [...]}` format.
+## Reference Files
+
+- `facilitate.py` and `feature_extractor.py` - Pilot implementation for reference when building Phase 2
+- `models/rf_classifier.pkl` - Pre-trained Random Forest model
+- `.env` - Environment variables (OPENAI_API_KEY, DATABASE_URL, etc.)
 
 ## Development Notes
 
-- No formal test framework; test by running pipeline on sample JSON files
 - LLM stages use structured JSON responses with fallback handling
-- Pipeline prints detailed logging to stdout showing each stage's decision
-- Designed to run periodically (every 30 minutes per README workflow)
+- Pipeline designed to run periodically (every 30 minutes via scheduler)
+- API key authentication required for all endpoints except `/health`
+- CORS configured for development (all origins) and production (Only-Human domains)
