@@ -18,6 +18,7 @@ from sqlalchemy import (
     String,
     Text,
     JSON,
+    UniqueConstraint,
     create_engine,
 )
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
@@ -50,6 +51,9 @@ class Chatroom(Base):
         Integer, unique=True, index=True, nullable=False
     )
     group_name: Mapped[str] = mapped_column(String(256))
+    last_ai_message_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.now(), nullable=False
     )
@@ -61,36 +65,116 @@ class Chatroom(Base):
     facilitation_logs: Mapped[List["FacilitationLog"]] = relationship(
         "FacilitationLog", back_populates="chatroom", cascade="all, delete-orphan"
     )
+    members: Mapped[List["Member"]] = relationship(
+        "Member", back_populates="chatroom", cascade="all, delete-orphan"
+    )
+    questions: Mapped[List["Question"]] = relationship(
+        "Question", back_populates="chatroom", cascade="all, delete-orphan"
+    )
 
     def __repr__(self) -> str:
         return f"<Chatroom(id={self.id}, external_id='{self.external_id}', group_name='{self.group_name}')>"
 
 
 class QuestionOption(Base):
+    """Question option model storing possible answer categories for questions."""
+
     __tablename__ = "question_options"
+
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    question_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("questions.id"), nullable=False, index=True
+    )
     text: Mapped[str] = mapped_column(String(256), nullable=False)
+
+    # Relationships
+    question: Mapped["Question"] = relationship("Question", back_populates="options")
+
+    def __repr__(self) -> str:
+        return f"<QuestionOption(id={self.id}, question_id={self.question_id}, text='{self.text}')>"
 
 
 class Question(Base):
+    """Question model storing discussion prompts for chatrooms."""
+
     __tablename__ = "questions"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    external_id: Mapped[str] = mapped_column(
+        String(256), unique=True, index=True, nullable=False
+    )
+    chatroom_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("chatrooms.id"), nullable=False, index=True
+    )
     text: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(String(64))
     unlock_order: Mapped[int] = mapped_column(SmallInteger)
 
-
-class Member(Base):
-    __tablename__ = "members"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    user_id: Mapped[str] = mapped_column(String(256), unique=True)
-    first_name: Mapped[str] = mapped_column(String(256))
-    last_name: Mapped[str] = mapped_column(String(256))
+    # Relationships
+    chatroom: Mapped["Chatroom"] = relationship("Chatroom", back_populates="questions")
+    options: Mapped[List["QuestionOption"]] = relationship(
+        "QuestionOption", back_populates="question", cascade="all, delete-orphan"
+    )
+    messages: Mapped[List["Message"]] = relationship(
+        "Message", back_populates="question", cascade="all, delete-orphan"
+    )
 
     def __repr__(self) -> str:
-        return f"<Member(id={self.id}, user_id='{self.user_id}', first_name='{self.first_name}')>"
+        return f"<Question(id={self.id}, external_id='{self.external_id}', text='{self.text[:50]}...')>"
+
+
+class User(Base):
+    """User model storing user information across all chatrooms."""
+
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    external_user_id: Mapped[str] = mapped_column(
+        String(256), unique=True, index=True, nullable=False
+    )
+    first_name: Mapped[str] = mapped_column(String(256), nullable=False)
+    last_name: Mapped[str] = mapped_column(String(256), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.now(), nullable=False
+    )
+
+    # Relationships
+    memberships: Mapped[List["Member"]] = relationship(
+        "Member", back_populates="user", cascade="all, delete-orphan"
+    )
+    messages: Mapped[List["Message"]] = relationship(
+        "Message", back_populates="user", cascade="all, delete-orphan"
+    )
+
+    def __repr__(self) -> str:
+        return f"<User(id={self.id}, external_user_id='{self.external_user_id}', first_name='{self.first_name}', last_name='{self.last_name}')>"
+
+
+class Member(Base):
+    """Member model - join table linking users to chatrooms."""
+
+    __tablename__ = "members"
+    __table_args__ = (
+        UniqueConstraint("chatroom_id", "user_id", name="uq_chatroom_user"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    chatroom_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("chatrooms.id"), nullable=False, index=True
+    )
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id"), nullable=False, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.now(), nullable=False
+    )
+
+    # Relationships
+    chatroom: Mapped["Chatroom"] = relationship("Chatroom", back_populates="members")
+    user: Mapped["User"] = relationship("User", back_populates="memberships")
+
+    def __repr__(self) -> str:
+        return f"<Member(id={self.id}, chatroom_id={self.chatroom_id}, user_id={self.user_id})>"
 
 
 class Message(Base):
@@ -102,18 +186,26 @@ class Message(Base):
     chatroom_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("chatrooms.id"), nullable=False, index=True
     )
+    question_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("questions.id"), nullable=False, index=True
+    )
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id"), nullable=False, index=True
+    )
     content: Mapped[str] = mapped_column(Text, nullable=False)
     timestamp: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    is_ai: Mapped[bool] = mapped_column(Boolean, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.now(), nullable=False
     )
-    is_ai: Mapped[bool] = mapped_column(Boolean, nullable=False)
 
     # Relationships
     chatroom: Mapped["Chatroom"] = relationship("Chatroom", back_populates="messages")
+    question: Mapped["Question"] = relationship("Question", back_populates="messages")
+    user: Mapped["User"] = relationship("User", back_populates="messages")
 
     def __repr__(self) -> str:
-        return f"<Message(id={self.id}, chatroom_id={self.chatroom_id}, user_id={self.user_id}, content={self.content})>"
+        return f"<Message(id={self.id}, chatroom_id={self.chatroom_id}, question_id={self.question_id}, user_id={self.user_id}, content='{self.content[:30]}...')>"
 
 
 class FacilitationLog(Base):
