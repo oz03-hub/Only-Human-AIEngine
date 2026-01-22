@@ -1,0 +1,99 @@
+{
+    "groups": [
+        {
+            "groupId": 123,
+            "groupName": "Study Group Alpha",
+            "members": [
+                {
+                    "userId": "uuid-user-1",
+                    "firstName": "John",
+                    "lastName": "Doe"
+                },
+                {
+                    "userId": "uuid-user-2",
+                    "firstName": "Jane",
+                    "lastName": "Smith"
+                },
+                {
+                    "userId": "uuid-user-3",
+                    "firstName": "Bob",
+                    "lastName": "Wilson"
+                }
+            ],
+            "questions": [
+                {
+                    "id": "uuid-question-1",
+                    "text": "What's your favorite childhood memory?",
+                    "options": [
+                        "Family vacations",
+                        "School events",
+                        "Holidays",
+                        "Other"
+                    ],
+                    "status": "active",
+                    "unlockOrder": 1
+                },
+                {
+                    "id": "uuid-question-2",
+                    "text": "Describe a challenge you overcame",
+                    "options": [
+                        "Work",
+                        "Personal",
+                        "Academic",
+                        "Other"
+                    ],
+                    "status": "active",
+                    "unlockOrder": 2
+                }
+            ],
+            "messages": [
+                {
+                    "questionId": "uuid-question-1",
+                    "userId": "uuid-user-1",
+                    "firstName": "John",
+                    "lastName": "Doe",
+                    "content": "<highlight>Family vacations</highlight> I loved our summer camping trips!",
+                    "createdAt": "2024-01-14T10:30:00Z",
+                    "isAi": false
+                },
+                {
+                    "questionId": "uuid-question-1",
+                    "userId": "uuid-user-2",
+                    "firstName": "Jane",
+                    "lastName": "Smith",
+                    "content": "<highlight>Holidays</highlight> We always had big family gatherings",
+                    "createdAt": "2024-01-14T11:00:00Z",
+                    "isAi": false
+                },
+                {
+                    "questionId": "uuid-question-1",
+                    "userId": "00000000-0000-0000-0000-000000000000",
+                    "firstName": "AI",
+                    "lastName": "Assistant",
+                    "content": "Both sound wonderful! What made those moments special?",
+                    "createdAt": "2024-01-14T11:30:00Z",
+                    "isAi": true
+                },
+                {
+                    "questionId": "uuid-question-2",
+                    "userId": "uuid-user-1",
+                    "firstName": "John",
+                    "lastName": "Doe",
+                    "content": "<highlight>Work</highlight> I had to lead my first big project last year",
+                    "createdAt": "2024-01-15T09:00:00Z",
+                    "isAi": false
+                },
+                {
+                    "questionId": "uuid-question-1",
+                    "userId": "uuid-user-3",
+                    "firstName": "Bob",
+                    "lastName": "Wilson",
+                    "content": "<highlight>School events</highlight> I remember my graduation day clearly",
+                    "createdAt": "2024-01-15T10:00:00Z",
+                    "isAi": false
+                }
+            ],
+            "lastAiMessageAt": "2024-01-14T11:30:00Z"
+        }
+    ]
+}

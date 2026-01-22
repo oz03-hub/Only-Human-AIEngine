@@ -4,11 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-UMass AIEngine is a multi-stage chat facilitation AI system for the "Only-Human" chat application, specifically designed for Alzheimer's caregiver support groups on the FATHM platform. It determines when and how to inject facilitation messages into group conversations.
+UMass AIEngine is a multi-stage chat facilitation AI system. It determines when and how to inject facilitation messages into group conversations.
 
 **Tech Stack:** FastAPI, SQLAlchemy, Pydantic, Alembic, OpenAI API, scikit-learn
-
-**Detailed specifications:** See DEVELOPMENT_PLAN.md
 
 ## Quick Start
 
@@ -44,7 +42,6 @@ app/
 ├── core/
 │   ├── pipeline.py          # FacilitationDecisionPipeline (Phase 2)
 │   ├── feature_extractor.py # TemporalFeatureExtractor (Phase 2)
-│   └── scheduler.py         # APScheduler for batch jobs (Phase 3)
 │
 ├── models/
 │   ├── database.py      # SQLAlchemy models (Chatroom, Message, FacilitationLog)
@@ -61,12 +58,10 @@ app/
 ### **SQLAlchemy** (Database ORM)
 - Converts Python classes ↔ database tables
 - Type-safe database operations without writing SQL
-- Example: `chatroom = await session.get(Chatroom, external_id="abc")`
 
 ### **Pydantic** (Data Validation)
 - Validates incoming/outgoing API data automatically
 - FastAPI uses it to ensure correct data types before reaching your code
-- Example: `WebhookMessageRequest` ensures `group_id` is string, `timestamp` is datetime
 
 ### **Alembic** (Database Migrations)
 - Version control for database schema changes
@@ -114,9 +109,16 @@ Database file: `data/aiengine.db` (SQLite for development)
 - `models/rf_classifier.pkl` - Pre-trained Random Forest model
 - `.env` - Environment variables (OPENAI_API_KEY, DATABASE_URL, etc.)
 
+## Example Server Workflow
+
+1. Server recieves `messages/webhook/`.
+2. Stores the messages in the payload to the database.
+3. Replies with success to the application after storing.
+4. After storing it starts the facilitation pipeline for the active groups present in the webhook payload.
+5. If it triggers a facilitation for a group constructs a facilitation response and sends it to the application api.
+
 ## Development Notes
 
 - LLM stages use structured JSON responses with fallback handling
-- Pipeline designed to run periodically (every 30 minutes via scheduler)
 - API key authentication required for all endpoints except `/health`
 - CORS configured for development (all origins) and production (Only-Human domains)

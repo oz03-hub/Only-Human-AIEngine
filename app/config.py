@@ -17,53 +17,43 @@ class Settings(BaseSettings):
 
     # Application
     env: Literal["development", "staging", "production"] = Field(
-        default="development",
-        description="Environment mode"
+        default="development", description="Environment mode"
     )
-    log_level: str = Field(
-        default="INFO",
-        description="Logging level"
-    )
+    log_level: str = Field(default="INFO", description="Logging level")
 
     # Database
     database_url: str = Field(
         default="sqlite+aiosqlite:///./data/aiengine.db",
-        description="Database connection URL"
+        description="Database connection URL",
+    )
+
+    # Application
+    # unknown url right now
+    application_url: str = Field(
+        default="onlyhuman.com",
+        description="API Endpoint to send facilitation messages",
     )
 
     # OpenAI
-    openai_api_key: str = Field(
-        ...,
-        description="OpenAI API key for LLM stages"
-    )
+    openai_api_key: str = Field(..., description="OpenAI API key for LLM stages")
 
     # API Security
     api_key: str = Field(
         default="dev-api-key-change-in-production",
-        description="API key for webhook authentication"
+        description="API key for webhook authentication",
     )
 
     # ML Model
     model_path: str = Field(
-        default="models/rf_classifier.pkl",
-        description="Path to pre-trained Random Forest model"
+        default="models/temporal_classifier.pkl",
+        description="Path to pre-trained Random Forest model",
     )
     llm_model: str = Field(
-        default="gpt-4o-mini",
-        description="OpenAI model to use for LLM stages"
-    )
-
-    # Scheduler
-    facilitation_check_interval_minutes: int = Field(
-        default=30,
-        description="Interval for scheduled facilitation checks"
+        default="gpt-4o-mini", description="OpenAI model to use for LLM stages"
     )
 
     model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        case_sensitive=False,
-        extra="ignore"
+        env_file=".env", env_file_encoding="utf-8", case_sensitive=False, extra="ignore"
     )
 
 
@@ -76,7 +66,7 @@ class JSONFormatter(logging.Formatter):
             "message": record.getMessage(),
             "module": record.module,
             "function": record.funcName,
-            "timestamp": self.formatTime(record, datefmt="%Y-%m-%d %H:%M:%S")
+            "timestamp": self.formatTime(record, datefmt="%Y-%m-%d %H:%M:%S"),
         }
 
         # Add exception info if present
@@ -102,10 +92,7 @@ def setup_logging(settings: Settings) -> None:
     handler.setFormatter(formatter)
 
     # Configure root logger
-    logging.basicConfig(
-        level=level,
-        handlers=[handler]
-    )
+    logging.basicConfig(level=level, handlers=[handler])
 
 
 # Global settings instance

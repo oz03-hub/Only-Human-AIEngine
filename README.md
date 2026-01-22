@@ -1,6 +1,139 @@
-This is the UMass AIEnginge for the Only-Human chat application.
+This is the UMass AIEngine for the Only-Human chat application.
 
 It serves the logic for the AI facilitation BOT.
+
+## Quick Start
+
+### Prerequisites
+- Python 3.10+
+- Virtual environment activated
+- OpenAI API key
+- API key for webhook authentication
+
+### Installation
+
+1. **Activate virtual environment:**
+```bash
+source .venv/bin/activate
+```
+
+2. **Install dependencies:**
+```bash
+pip install -r requirements.txt
+```
+
+3. **Configure environment variables:**
+```bash
+# Copy example and edit with your keys
+cp .env.example .env
+# Edit .env and add your OPENAI_API_KEY and API_KEY
+```
+
+4. **Run database migrations:**
+```bash
+alembic upgrade head
+```
+
+### Running the Server
+
+Start the development server:
+```bash
+python -m app.main
+```
+
+The server will start at `http://localhost:8000`
+
+### API Documentation
+
+Once the server is running, you can access the interactive API documentation:
+
+- **Swagger UI (recommended):** http://localhost:8000/docs
+- **ReDoc:** http://localhost:8000/redoc
+
+The Swagger UI allows you to:
+- View all available endpoints
+- See request/response schemas
+- Test endpoints directly in the browser
+- Try out API calls with your API key
+
+### API Endpoints
+
+#### Health Check
+```bash
+GET /health
+# No authentication required
+```
+
+#### Webhook for Messages
+```bash
+POST /api/v1/messages/webhook
+# Requires X-API-Key header
+# Receives and stores batch messages
+# Returns 200 OK with summary (no facilitation processing)
+```
+
+#### Manual Facilitation Check
+```bash
+POST /api/v1/facilitation/check
+# Requires X-API-Key header
+# Manually trigger facilitation check for a chatroom
+```
+
+#### Get Facilitation Logs
+```bash
+GET /api/v1/facilitation/logs?group_id=<chatroom-uuid>&limit=10
+# Requires X-API-Key header
+# Retrieve facilitation decision logs
+```
+
+### Example API Requests
+
+#### Send messages to webhook
+```bash
+curl -X POST http://localhost:8000/api/v1/messages/webhook \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your-api-key-here" \
+  -d '{
+    "messages": [
+      {
+        "group_id": "chatroom-uuid-123",
+        "user_id": "user-uuid-456",
+        "user_name": "Alice",
+        "content": "Hello everyone",
+        "timestamp": "2024-01-15T14:30:00Z"
+      }
+    ]
+  }'
+```
+
+Response:
+```json
+{
+  "status": "success",
+  "messages_received": 1,
+  "chatrooms_affected": 1
+}
+```
+
+#### Manually trigger facilitation check
+```bash
+curl -X POST http://localhost:8000/api/v1/facilitation/check \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your-api-key-here" \
+  -d '{
+    "group_id": "chatroom-uuid-123"
+  }'
+```
+
+Response:
+```json
+{
+  "group_id": "chatroom-uuid-123",
+  "decision": "FACILITATE",
+  "message": "It sounds like everyone is going through similar challenges...",
+  "log_id": 42
+}
+```
 
 # Proposed Workflow
 ## Pre-requisites
