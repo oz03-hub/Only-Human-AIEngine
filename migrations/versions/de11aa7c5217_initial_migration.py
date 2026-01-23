@@ -1,8 +1,8 @@
-"""initial migration with normalized user model
+"""initial migration
 
-Revision ID: f0558e0b9024
+Revision ID: de11aa7c5217
 Revises: 
-Create Date: 2026-01-22 15:49:26.145942
+Create Date: 2026-01-22 22:22:52.685615
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = 'f0558e0b9024'
+revision: str = 'de11aa7c5217'
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -85,7 +85,7 @@ def upgrade() -> None:
     op.create_table('messages',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('chatroom_id', sa.Integer(), nullable=False),
-    sa.Column('question_id', sa.Integer(), nullable=False),
+    sa.Column('question_id', sa.Integer(), nullable=True),
     sa.Column('user_id', sa.Integer(), nullable=False),
     sa.Column('content', sa.Text(), nullable=False),
     sa.Column('timestamp', sa.DateTime(), nullable=False),
@@ -98,7 +98,6 @@ def upgrade() -> None:
     )
     op.create_index(op.f('ix_messages_chatroom_id'), 'messages', ['chatroom_id'], unique=False)
     op.create_index(op.f('ix_messages_id'), 'messages', ['id'], unique=False)
-    op.create_index(op.f('ix_messages_question_id'), 'messages', ['question_id'], unique=False)
     op.create_index(op.f('ix_messages_user_id'), 'messages', ['user_id'], unique=False)
     op.create_table('question_options',
     sa.Column('id', sa.Integer(), nullable=False),
@@ -119,7 +118,6 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_question_options_id'), table_name='question_options')
     op.drop_table('question_options')
     op.drop_index(op.f('ix_messages_user_id'), table_name='messages')
-    op.drop_index(op.f('ix_messages_question_id'), table_name='messages')
     op.drop_index(op.f('ix_messages_id'), table_name='messages')
     op.drop_index(op.f('ix_messages_chatroom_id'), table_name='messages')
     op.drop_table('messages')

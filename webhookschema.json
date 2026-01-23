@@ -1,23 +1,23 @@
 {
     "groups": [
         {
-            "groupId": 123,
-            "groupName": "Study Group Alpha",
+            "group_id": 123,
+            "group_name": "Study Group Alpha",
             "members": [
                 {
-                    "userId": "uuid-user-1",
-                    "firstName": "John",
-                    "lastName": "Doe"
+                    "user_id": "uuid-user-1",
+                    "first_name": "John",
+                    "last_name": "Doe"
                 },
                 {
-                    "userId": "uuid-user-2",
-                    "firstName": "Jane",
-                    "lastName": "Smith"
+                    "user_id": "uuid-user-2",
+                    "first_name": "Jane",
+                    "last_name": "Smith"
                 },
                 {
-                    "userId": "uuid-user-3",
-                    "firstName": "Bob",
-                    "lastName": "Wilson"
+                    "user_id": "uuid-user-3",
+                    "first_name": "Bob",
+                    "last_name": "Wilson"
                 }
             ],
             "questions": [
@@ -31,7 +31,7 @@
                         "Other"
                     ],
                     "status": "active",
-                    "unlockOrder": 1
+                    "unlock_order": 1
                 },
                 {
                     "id": "uuid-question-2",
@@ -43,57 +43,57 @@
                         "Other"
                     ],
                     "status": "active",
-                    "unlockOrder": 2
+                    "unlock_order": 2
                 }
             ],
             "messages": [
                 {
-                    "questionId": "uuid-question-1",
-                    "userId": "uuid-user-1",
-                    "firstName": "John",
-                    "lastName": "Doe",
+                    "question_id": "uuid-question-1",
+                    "user_id": "uuid-user-1",
+                    "first_name": "John",
+                    "last_name": "Doe",
                     "content": "<highlight>Family vacations</highlight> I loved our summer camping trips!",
-                    "createdAt": "2024-01-14T10:30:00Z",
-                    "isAi": false
+                    "created_at": "2024-01-14T10:30:00Z",
+                    "is_ai": false
                 },
                 {
-                    "questionId": "uuid-question-1",
-                    "userId": "uuid-user-2",
-                    "firstName": "Jane",
-                    "lastName": "Smith",
+                    "question_id": "uuid-question-1",
+                    "user_id": "uuid-user-2",
+                    "first_name": "Jane",
+                    "last_name": "Smith",
                     "content": "<highlight>Holidays</highlight> We always had big family gatherings",
-                    "createdAt": "2024-01-14T11:00:00Z",
-                    "isAi": false
+                    "created_at": "2024-01-14T11:00:00Z",
+                    "is_ai": false
                 },
                 {
-                    "questionId": "uuid-question-1",
-                    "userId": "00000000-0000-0000-0000-000000000000",
-                    "firstName": "AI",
-                    "lastName": "Assistant",
+                    "question_id": "uuid-question-1",
+                    "user_id": "00000000-0000-0000-0000-000000000000",
+                    "first_name": "AI",
+                    "last_name": "Assistant",
                     "content": "Both sound wonderful! What made those moments special?",
-                    "createdAt": "2024-01-14T11:30:00Z",
-                    "isAi": true
+                    "created_at": "2024-01-14T11:30:00Z",
+                    "is_ai": true
                 },
                 {
-                    "questionId": "uuid-question-2",
-                    "userId": "uuid-user-1",
-                    "firstName": "John",
-                    "lastName": "Doe",
+                    "question_id": "uuid-question-2",
+                    "user_id": "uuid-user-1",
+                    "first_name": "John",
+                    "last_name": "Doe",
                     "content": "<highlight>Work</highlight> I had to lead my first big project last year",
-                    "createdAt": "2024-01-15T09:00:00Z",
-                    "isAi": false
+                    "created_at": "2024-01-15T09:00:00Z",
+                    "is_ai": false
                 },
                 {
-                    "questionId": "uuid-question-1",
-                    "userId": "uuid-user-3",
-                    "firstName": "Bob",
-                    "lastName": "Wilson",
+                    "question_id": "uuid-question-1",
+                    "user_id": "uuid-user-3",
+                    "first_name": "Bob",
+                    "last_name": "Wilson",
                     "content": "<highlight>School events</highlight> I remember my graduation day clearly",
-                    "createdAt": "2024-01-15T10:00:00Z",
-                    "isAi": false
+                    "created_at": "2024-01-15T10:00:00Z",
+                    "is_ai": false
                 }
             ],
-            "lastAiMessageAt": "2024-01-14T11:30:00Z"
+            "last_ai_message_at": "2024-01-14T11:30:00Z"
         }
     ]
 }

@@ -50,13 +50,14 @@ class Chatroom(Base):
     external_id: Mapped[int] = mapped_column(
         Integer, unique=True, index=True, nullable=False
     )
-    group_name: Mapped[str] = mapped_column(String(256))
+    group_name: Mapped[str] = mapped_column(String(256), default="")
     last_ai_message_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime, nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.now(), nullable=False
     )
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
     # Relationships
     messages: Mapped[List["Message"]] = relationship(
@@ -133,7 +134,7 @@ class User(Base):
         String(256), unique=True, index=True, nullable=False
     )
     first_name: Mapped[str] = mapped_column(String(256), nullable=False)
-    last_name: Mapped[str] = mapped_column(String(256), nullable=False)
+    last_name: Mapped[str] = mapped_column(String(256), nullable=False, default="")
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.now(), nullable=False
     )
@@ -186,8 +187,8 @@ class Message(Base):
     chatroom_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("chatrooms.id"), nullable=False, index=True
     )
-    question_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("questions.id"), nullable=False, index=True
+    question_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("questions.id"), nullable=True
     )
     user_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("users.id"), nullable=False, index=True
@@ -201,7 +202,9 @@ class Message(Base):
 
     # Relationships
     chatroom: Mapped["Chatroom"] = relationship("Chatroom", back_populates="messages")
-    question: Mapped["Question"] = relationship("Question", back_populates="messages")
+    question: Mapped[Optional["Question"]] = relationship(
+        "Question", back_populates="messages"
+    )
     user: Mapped["User"] = relationship("User", back_populates="messages")
 
     def __repr__(self) -> str:
