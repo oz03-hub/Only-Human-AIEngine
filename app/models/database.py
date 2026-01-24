@@ -1,6 +1,6 @@
 """
 SQLAlchemy database models for AIEngine.
-Defines tables for chatrooms, messages, and facilitation logs.
+Defines tables for groups, questions, messages, and facilitation logs.
 """
 
 from datetime import datetime
@@ -41,10 +41,10 @@ class FacilitationDecision(str, PyEnum):
     FACILITATE = "FACILITATE"
 
 
-class Chatroom(Base):
-    """Chatroom model storing group conversation metadata."""
+class Group(Base):
+    """Group model storing group conversation metadata."""
 
-    __tablename__ = "chatrooms"
+    __tablename__ = "groups"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     external_id: Mapped[int] = mapped_column(
@@ -61,20 +61,20 @@ class Chatroom(Base):
 
     # Relationships
     messages: Mapped[List["Message"]] = relationship(
-        "Message", back_populates="chatroom", cascade="all, delete-orphan"
+        "Message", back_populates="group", cascade="all, delete-orphan"
     )
     facilitation_logs: Mapped[List["FacilitationLog"]] = relationship(
-        "FacilitationLog", back_populates="chatroom", cascade="all, delete-orphan"
+        "FacilitationLog", back_populates="group", cascade="all, delete-orphan"
     )
     members: Mapped[List["Member"]] = relationship(
-        "Member", back_populates="chatroom", cascade="all, delete-orphan"
+        "Member", back_populates="group", cascade="all, delete-orphan"
     )
-    questions: Mapped[List["Question"]] = relationship(
-        "Question", back_populates="chatroom", cascade="all, delete-orphan"
+    group_questions: Mapped[List["GroupQuestion"]] = relationship(
+        "GroupQuestion", back_populates="group", cascade="all, delete-orphan"
     )
 
     def __repr__(self) -> str:
-        return f"<Chatroom(id={self.id}, external_id='{self.external_id}', group_name='{self.group_name}')>"
+        return f"<Group(id={self.id}, external_id='{self.external_id}', group_name='{self.group_name}')>"
 
 
 class QuestionOption(Base):
@@ -96,7 +96,7 @@ class QuestionOption(Base):
 
 
 class Question(Base):
-    """Question model storing discussion prompts for chatrooms."""
+    """Question model storing unique discussion prompts."""
 
     __tablename__ = "questions"
 
@@ -104,28 +104,59 @@ class Question(Base):
     external_id: Mapped[str] = mapped_column(
         String(256), unique=True, index=True, nullable=False
     )
-    chatroom_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("chatrooms.id"), nullable=False, index=True
-    )
     text: Mapped[str] = mapped_column(Text, nullable=False)
-    status: Mapped[str] = mapped_column(String(64))
-    unlock_order: Mapped[int] = mapped_column(SmallInteger)
 
     # Relationships
-    chatroom: Mapped["Chatroom"] = relationship("Chatroom", back_populates="questions")
     options: Mapped[List["QuestionOption"]] = relationship(
         "QuestionOption", back_populates="question", cascade="all, delete-orphan"
     )
-    messages: Mapped[List["Message"]] = relationship(
-        "Message", back_populates="question", cascade="all, delete-orphan"
+    group_questions: Mapped[List["GroupQuestion"]] = relationship(
+        "GroupQuestion", back_populates="question", cascade="all, delete-orphan"
     )
 
     def __repr__(self) -> str:
         return f"<Question(id={self.id}, external_id='{self.external_id}', text='{self.text[:50]}...')>"
 
 
+class GroupQuestion(Base):
+    """
+    Association table representing a question thread within a group.
+    A pair of (group_id, question_id) identifies a unique conversation thread.
+    """
+
+    __tablename__ = "group_questions"
+    __table_args__ = (
+        UniqueConstraint("group_id", "question_id", name="uq_group_question"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    group_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("groups.id"), nullable=False, index=True
+    )
+    question_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("questions.id"), nullable=False, index=True
+    )
+    status: Mapped[str] = mapped_column(String(64), nullable=False)
+    unlock_order: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.now(), nullable=False
+    )
+
+    # Relationships
+    group: Mapped["Group"] = relationship("Group", back_populates="group_questions")
+    question: Mapped["Question"] = relationship(
+        "Question", back_populates="group_questions"
+    )
+    messages: Mapped[List["Message"]] = relationship(
+        "Message", back_populates="group_question", cascade="all, delete-orphan"
+    )
+
+    def __repr__(self) -> str:
+        return f"<GroupQuestion(id={self.id}, group_id={self.group_id}, question_id={self.question_id}, status='{self.status}')>"
+
+
 class User(Base):
-    """User model storing user information across all chatrooms."""
+    """User model storing user information across all groups."""
 
     __tablename__ = "users"
 
@@ -152,16 +183,14 @@ class User(Base):
 
 
 class Member(Base):
-    """Member model - join table linking users to chatrooms."""
+    """Member model - join table linking users to groups."""
 
     __tablename__ = "members"
-    __table_args__ = (
-        UniqueConstraint("chatroom_id", "user_id", name="uq_chatroom_user"),
-    )
+    __table_args__ = (UniqueConstraint("group_id", "user_id", name="uq_group_user"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    chatroom_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("chatrooms.id"), nullable=False, index=True
+    group_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("groups.id"), nullable=False, index=True
     )
     user_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("users.id"), nullable=False, index=True
@@ -171,24 +200,26 @@ class Member(Base):
     )
 
     # Relationships
-    chatroom: Mapped["Chatroom"] = relationship("Chatroom", back_populates="members")
+    group: Mapped["Group"] = relationship("Group", back_populates="members")
     user: Mapped["User"] = relationship("User", back_populates="memberships")
 
     def __repr__(self) -> str:
-        return f"<Member(id={self.id}, chatroom_id={self.chatroom_id}, user_id={self.user_id})>"
+        return (
+            f"<Member(id={self.id}, group_id={self.group_id}, user_id={self.user_id})>"
+        )
 
 
 class Message(Base):
-    """Message model storing individual chat messages."""
+    """Message model storing individual chat messages within question threads."""
 
     __tablename__ = "messages"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    chatroom_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("chatrooms.id"), nullable=False, index=True
+    group_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("groups.id"), nullable=False, index=True
     )
-    question_id: Mapped[Optional[int]] = mapped_column(
-        Integer, ForeignKey("questions.id"), nullable=True
+    group_question_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("group_questions.id"), nullable=False, index=True
     )
     user_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("users.id"), nullable=False, index=True
@@ -201,14 +232,14 @@ class Message(Base):
     )
 
     # Relationships
-    chatroom: Mapped["Chatroom"] = relationship("Chatroom", back_populates="messages")
-    question: Mapped[Optional["Question"]] = relationship(
-        "Question", back_populates="messages"
+    group: Mapped["Group"] = relationship("Group", back_populates="messages")
+    group_question: Mapped["GroupQuestion"] = relationship(
+        "GroupQuestion", back_populates="messages"
     )
     user: Mapped["User"] = relationship("User", back_populates="messages")
 
     def __repr__(self) -> str:
-        return f"<Message(id={self.id}, chatroom_id={self.chatroom_id}, question_id={self.question_id}, user_id={self.user_id}, content='{self.content[:30]}...')>"
+        return f"<Message(id={self.id}, group_id={self.group_id}, group_question_id={self.group_question_id}, user_id={self.user_id}, content='{self.content[:30]}...')>"
 
 
 class FacilitationLog(Base):
@@ -217,8 +248,11 @@ class FacilitationLog(Base):
     __tablename__ = "facilitation_logs"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    chatroom_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("chatrooms.id"), nullable=False, index=True
+    group_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("groups.id"), nullable=False, index=True
+    )
+    group_question_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("group_questions.id"), nullable=False, index=True
     )
     triggered_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.now(), nullable=False
@@ -239,12 +273,13 @@ class FacilitationLog(Base):
     message_sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
     # Relationships
-    chatroom: Mapped["Chatroom"] = relationship(
-        "Chatroom", back_populates="facilitation_logs"
+    group: Mapped["Group"] = relationship(
+        "Group", back_populates="facilitation_logs"
     )
+    group_question: Mapped["GroupQuestion"] = relationship("GroupQuestion")
 
     def __repr__(self) -> str:
-        return f"<FacilitationLog(id={self.id}, chatroom_id={self.chatroom_id}, decision={self.final_decision})>"
+        return f"<FacilitationLog(id={self.id}, group_id={self.group_id}, group_question_id={self.group_question_id}, decision={self.final_decision})>"
 
 
 # Database engine and session factory

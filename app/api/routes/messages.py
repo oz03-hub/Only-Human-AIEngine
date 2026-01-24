@@ -9,7 +9,15 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.database import get_db
-from app.models.schemas import WebhookIncomingRequest, WebhookIncomingGroup, WebhookIncomingMessage, WebhookResponse, MessageBase
+from app.models.schemas import (
+    WebhookIncomingRequest,
+    WebhookIncomingGroup,
+    WebhookIncomingMessage,
+    WebhookResponse,
+    MessageResponse,
+    GroupUpdateRequest,
+    GroupUpdateResponse,
+)
 from app.services.message_service import MessageService
 from app.api.middleware.auth import verify_api_key
 from typing import List
@@ -18,39 +26,97 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/messages", tags=["messages"])
 
-
-@router.get(
-    "/logs",
-    response_model=List[MessageBase],
+@router.patch(
+    "/group_activity",
+    response_model=GroupUpdateResponse,
     status_code=status.HTTP_200_OK,
-    summary="Get stored messages for a chatroom",
-    description="Retrieve stored messages for a specific chatroom by group_id",
+    summary="Update group activity",
+    description="Updates group is_active status",
 )
-async def get_messages(
-    group_id: str,
+async def update_group(
+    request: GroupUpdateRequest,
     session: AsyncSession = Depends(get_db),
     _api_key: str = Depends(verify_api_key),
 ):
     """
-    Retrieve stored messages for a specific chatroom.
+    Update group active status.
 
     Args:
-        group_id: Chatroom UUID to retrieve messages for
+        request: Group update request with group_id and is_active
+        session: Database session
+        _api_key: Validated API key
+
+    Returns:
+        Success response with updated group information
+    """
+    logger.info(f"Updating group {request.group_id} active status to {request.is_active}")
+
+    try:
+        message_service = MessageService(session)
+
+        # Update group active status
+        group = await message_service.update_group_active_status(
+            external_id=request.group_id,
+            new_status=request.is_active
+        )
+
+        if not group:
+            logger.warning(f"Group {request.group_id} not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Group with ID {request.group_id} not found",
+            )
+
+        logger.info(f"Successfully updated group {request.group_id}")
+
+        return GroupUpdateResponse(
+            status="success",
+            group_id=request.group_id,
+            is_active=request.is_active,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating group {request.group_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error updating group: {str(e)}",
+        )
+
+
+@router.get(
+    "/logs",
+    response_model=List[MessageResponse],
+    status_code=status.HTTP_200_OK,
+    summary="Get stored messages for a group",
+    description="Retrieve stored messages for a specific group by group_id",
+)
+async def get_messages(
+    group_id: int,
+    session: AsyncSession = Depends(get_db),
+    _api_key: str = Depends(verify_api_key),
+):
+    """
+    Retrieve stored messages for a specific group, include all threads.
+
+    Args:
+        group_id: Group ID to retrieve messages for
         session: Database session
         _api_key: Validated API key
     Returns:
-        List of stored messages for the chatroom
+        List of stored messages for the group
     """
 
     logger.info(f"Fetching message logs for group: {group_id}")
     try:
         message_service = MessageService(session)
-        chatroom = await message_service.get_chatroom_by_external_id(group_id)
-        messages = await message_service.get_conversation_history(chatroom, 10)
+        group = await message_service.get_group_by_external_id(group_id)
+        message_history = await message_service.get_conversation_history(group, limit=20)
 
-        logger.info(f"Retrieved {len(messages)} messages for group: {group_id}")
+        logger.info(f"Retrieved {len(message_history)} messages for group: {group_id}")
 
-        return messages
+        return message_history
 
     except Exception as e:
         logger.error(
@@ -67,7 +133,7 @@ async def get_messages(
     response_model=WebhookResponse,
     status_code=status.HTTP_200_OK,
     summary="Receive batch messages from chat application",
-    description="Webhook endpoint that receives and stores messages. Returns 200 OK on success. After saving messages it starts facilitation process.",
+    description="Webhook endpoint that receives and stores messages. Returns 200 OK on success.",
 )
 async def receive_messages_webhook(
     request: WebhookIncomingRequest,
@@ -80,7 +146,6 @@ async def receive_messages_webhook(
     This endpoint:
     1. Stores incoming messages in the database
     2. Returns 200 OK with summary
-    3. Starts facilitation processing
 
     Args:
         request: Batch of messages from the chat application
@@ -88,25 +153,28 @@ async def receive_messages_webhook(
         _api_key: Validated API key (from header)
 
     Returns:
-        Success response with count of messages and chatrooms affected
+        Success response with count of messages and groups and question threads affected
     """
-    logger.info(f"Received webhook with {len(request.messages)} messages")
+    logger.info(f"Received webhook with {len(request.groups)} groups")
 
     try:
         # Store messages
         message_service = MessageService(session)
-        messages_by_group = await message_service.store_webhook_messages(
-            request.messages
+        messages_by_group_by_question = await message_service.store_webhook_content(
+            request
         )
 
-        logger.info(
-            f"Successfully stored messages for {len(messages_by_group)} chatrooms"
-        )
+        logger.info("Successfully stored messages.")
 
         return WebhookResponse(
             status="success",
-            messages_received=len(request.messages),
-            chatrooms_affected=len(messages_by_group),
+            groups_affected=len(messages_by_group_by_question),
+            question_threads_affected=sum(len(qs) for qs in messages_by_group_by_question.values()),
+            messages_received=sum(
+                len(q)
+                for qs in messages_by_group_by_question.values()
+                for q in qs.values()
+            ),
         )
 
     except Exception as e:

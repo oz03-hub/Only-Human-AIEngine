@@ -12,13 +12,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.database import (
-    Chatroom,
+    Group,
     Message,
     FacilitationLog,
     User,
     Member,
     Question,
     QuestionOption,
+    GroupQuestion,
 )
 from app.models.schemas import (
     WebhookIncomingRequest,
@@ -31,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 
 class MessageService:
-    """Service for managing messages, users, chatrooms, and related entities."""
+    """Service for managing messages, users, groups, and related entities."""
 
     def __init__(self, session: AsyncSession):
         """
@@ -80,96 +81,96 @@ class MessageService:
 
         return user
 
-    # ===== Chatroom CRUD Operations =====
+    # ===== Group CRUD Operations =====
 
-    async def get_or_create_chatroom(
+    async def get_or_create_group(
         self,
         external_id: int,
         group_name: str = "",
         last_ai_message_at: Optional[datetime] = None,
-    ) -> Chatroom:
+    ) -> Group:
         """
-        Get existing chatroom or create new one.
+        Get existing group or create new one.
 
         Args:
-            external_id: External chatroom ID from the chat application
-            group_name: Name of the chatroom
+            external_id: External group ID from the chat application
+            group_name: Name of the group
             last_ai_message_at: Timestamp of last AI message
 
         Returns:
-            Chatroom object
+            Group object
         """
-        # Try to get existing chatroom
+        # Try to get existing group
         result = await self.session.execute(
-            select(Chatroom).where(Chatroom.external_id == external_id)
+            select(Group).where(Group.external_id == external_id)
         )
-        chatroom = result.scalar_one_or_none()
+        group = result.scalar_one_or_none()
 
-        if chatroom:
-            return chatroom
+        if group:
+            return group
 
-        # Create new chatroom
-        chatroom = Chatroom(
+        # Create new group
+        group = Group(
             external_id=external_id,
             group_name=group_name,
             last_ai_message_at=last_ai_message_at,
             created_at=datetime.now(),
         )
-        self.session.add(chatroom)
+        self.session.add(group)
         await self.session.flush()
-        logger.info(f"Created new chatroom: {external_id} ({group_name})")
+        logger.info(f"Created new group: {external_id} ({group_name})")
 
-        return chatroom
+        return group
 
-    async def update_chatroom_active_status(
+    async def update_group_active_status(
         self, external_id: int, new_status: bool
-    ) -> Optional[Chatroom]:
+    ) -> Optional[Group]:
         """
-        Update chatroom activeness status by external ID.
+        Update group activeness status by external ID.
 
         Args:
-            external_id: External chatroom ID
+            external_id: External group ID
             new_status: True or False to indicate activity
 
         Returns:
-            Chatroom object or None
+            Group object or None
         """
 
         result = await self.session.execute(
-            select(Chatroom).where(Chatroom.external_id == external_id)
+            select(Group).where(Group.external_id == external_id)
         )
-        chatroom = result.scalar_one_or_none()
+        group = result.scalar_one_or_none()
 
-        if chatroom:
-            # Update chatroom activity
-            chatroom.is_active = new_status
+        if group:
+            # Update group activity
+            group.is_active = new_status
             await self.session.flush()
 
-        return chatroom
+        return group
 
-    async def get_chatroom_by_external_id(self, external_id: int) -> Optional[Chatroom]:
+    async def get_group_by_external_id(self, external_id: int) -> Optional[Group]:
         """
-        Get chatroom by external ID.
+        Get group by external ID.
 
         Args:
-            external_id: External chatroom ID
+            external_id: External group ID
 
         Returns:
-            Chatroom object or None
+            Group object or None
         """
         result = await self.session.execute(
-            select(Chatroom).where(Chatroom.external_id == external_id)
+            select(Group).where(Group.external_id == external_id)
         )
         return result.scalar_one_or_none()
 
     # ===== Member CRUD Operations =====
 
-    async def get_or_create_member(self, chatroom: Chatroom, user: User) -> Member:
+    async def get_or_create_member(self, group: Group, user: User) -> Member:
         """
-        Get existing member or create new one (join user to chatroom).
+        Get existing member or create new one (join user to group).
 
         Args:
-            chatroom: Chatroom object
+            group: Group object
             user: User object
 
         Returns:
@@ -178,7 +179,7 @@ class MessageService:
         # Try to get existing membership
         result = await self.session.execute(
             select(Member).where(
-                and_(Member.chatroom_id == chatroom.id, Member.user_id == user.id)
+                and_(Member.group_id == group.id, Member.user_id == user.id)
             )
         )
         member = result.scalar_one_or_none()
@@ -188,15 +189,13 @@ class MessageService:
 
         # Create new membership
         member = Member(
-            chatroom_id=chatroom.id,
+            group_id=group.id,
             user_id=user.id,
             created_at=datetime.now(),
         )
         self.session.add(member)
         await self.session.flush()
-        logger.info(
-            f"Added user {user.external_user_id} to chatroom {chatroom.external_id}"
-        )
+        logger.info(f"Added user {user.external_user_id} to group {group.external_id}")
 
         return member
 
@@ -204,21 +203,16 @@ class MessageService:
 
     async def get_or_create_question(
         self,
-        chatroom: Chatroom,
         external_id: str,
         text: str,
-        status: str,
-        unlock_order: int,
     ) -> Question:
         """
         Get existing question or create new one.
+        Questions are global entities that can be used across multiple groups.
 
         Args:
-            chatroom: Chatroom object
             external_id: External question ID
             text: Question text
-            status: Question status (active, inactive)
-            unlock_order: Order in which question is unlocked
 
         Returns:
             Question object
@@ -230,19 +224,9 @@ class MessageService:
         question = result.scalar_one_or_none()
 
         if question:
-            # Update question info if changed
-            updated = False
+            # Update question text if changed
             if question.text != text:
                 question.text = text
-                updated = True
-            if question.status != status:
-                question.status = status
-                updated = True
-            if question.unlock_order != unlock_order:
-                question.unlock_order = unlock_order
-                updated = True
-
-            if updated:
                 await self.session.flush()
                 logger.debug(f"Updated question: {external_id}")
 
@@ -251,18 +235,80 @@ class MessageService:
         # Create new question
         question = Question(
             external_id=external_id,
-            chatroom_id=chatroom.id,
             text=text,
-            status=status,
-            unlock_order=unlock_order,
         )
         self.session.add(question)
         await self.session.flush()
-        logger.info(
-            f"Created new question: {external_id} in chatroom {chatroom.external_id}"
-        )
+        logger.info(f"Created new question: {external_id}")
 
         return question
+
+    async def get_or_create_group_question(
+        self,
+        group: Group,
+        question: Question,
+        status: str,
+        unlock_order: int,
+    ) -> GroupQuestion:
+        """
+        Get existing group-question thread or create new one.
+        A GroupQuestion represents a question thread within a specific group.
+
+        Args:
+            group: Group object
+            question: Question object
+            status: Question status in this group (active, inactive, etc.)
+            unlock_order: Order in which question is unlocked in this group
+
+        Returns:
+            GroupQuestion object
+        """
+        # Try to get existing group-question association
+        result = await self.session.execute(
+            select(GroupQuestion).where(
+                and_(
+                    GroupQuestion.group_id == group.id,
+                    GroupQuestion.question_id == question.id,
+                )
+            )
+        )
+        group_question = result.scalar_one_or_none()
+
+        if group_question:
+            # Update status and unlock_order if changed
+            updated = False
+            if group_question.status != status:
+                group_question.status = status
+                updated = True
+            if group_question.unlock_order != unlock_order:
+                group_question.unlock_order = unlock_order
+                updated = True
+
+            if updated:
+                await self.session.flush()
+                logger.debug(
+                    f"Updated GroupQuestion for group {group.external_id}, "
+                    f"question {question.external_id}"
+                )
+
+            return group_question
+
+        # Create new group-question association
+        group_question = GroupQuestion(
+            group_id=group.id,
+            question_id=question.id,
+            status=status,
+            unlock_order=unlock_order,
+            created_at=datetime.now(),
+        )
+        self.session.add(group_question)
+        await self.session.flush()
+        logger.info(
+            f"Created GroupQuestion thread for group {group.external_id}, "
+            f"question {question.external_id}"
+        )
+
+        return group_question
 
     async def create_or_update_question_options(
         self, question: Question, options: List[str]
@@ -335,31 +381,31 @@ class MessageService:
 
     async def create_message(
         self,
-        chatroom: Chatroom,
+        group: Group,
         user: User,
         content: str,
         timestamp: datetime,
-        question: Optional[Question] = None,
+        group_question: GroupQuestion,
         is_ai: bool = False,
     ) -> Message:
         """
         Create a new message in the database.
 
         Args:
-            chatroom: Chatroom object
+            group: Group object
             user: User object
             content: Message content
             timestamp: Message timestamp
-            question: Optional Question object the message is responding to
+            group_question: GroupQuestion object (thread) the message belongs to
             is_ai: Whether the message was generated by AI
 
         Returns:
             Created Message object
         """
         message = Message(
-            chatroom_id=chatroom.id,
+            group_id=group.id,
             user_id=user.id,
-            question_id=question.id if question else None,
+            group_question_id=group_question.id,
             content=content,
             timestamp=timestamp,
             is_ai=is_ai,
@@ -368,30 +414,35 @@ class MessageService:
         self.session.add(message)
         await self.session.flush()
         logger.debug(
-            f"Created message {message.id} in chatroom {chatroom.external_id} "
-            f"(question: {question.external_id if question else 'None'}, is_ai: {is_ai})"
+            f"Created message {message.id} in group {group.external_id} "
+            f"(group_question: {group_question.id}, is_ai: {is_ai})"
         )
 
         return message
 
     async def get_conversation_history(
         self,
-        chatroom: Chatroom,
+        group: Group,
+        group_question: Optional[GroupQuestion] = None,
         limit: Optional[int] = None,
         since: Optional[datetime] = None,
     ) -> List[Message]:
         """
-        Get conversation history for a chatroom.
+        Get conversation history for a group, optionally filtered by question thread.
 
         Args:
-            chatroom: Chatroom object
+            group: Group object
+            group_question: Optional GroupQuestion to filter messages by thread
             limit: Maximum number of messages to retrieve (most recent)
             since: Only get messages after this timestamp
 
         Returns:
             List of Message objects ordered by timestamp
         """
-        query = select(Message).where(Message.chatroom_id == chatroom.id)
+        query = select(Message).where(Message.group_id == group.id)
+
+        if group_question:
+            query = query.where(Message.group_question_id == group_question.id)
 
         if since:
             query = query.where(Message.timestamp >= since)
@@ -421,44 +472,59 @@ class MessageService:
         Returns:
             Dictionary mapping group_id to list of created Message objects
         """
-        messages_by_group: Dict[int, List[Message]] = {}
+        messages_by_group_by_question: Dict[int, Dict[int, List[str]]] = {}
         groups: List[WebhookIncomingGroup] = webhook_content.groups
 
-        for group in groups:
-            group_id: int = group.group_id
-            messages_by_group[group_id] = []
+        for group_data in groups:
+            group_id: int = group_data.group_id
+            messages_by_group_by_question[group_id] = {}
 
-            # Create/update chatroom
-            chatroom = await self.get_or_create_chatroom(
+            # Create/update group
+            group = await self.get_or_create_group(
                 external_id=group_id,
-                group_name=group.group_name,
-                last_ai_message_at=group.last_ai_message_at,
+                group_name=group_data.group_name,
+                last_ai_message_at=group_data.last_ai_message_at,
             )
 
             # Create/update members
-            for member_data in group.members:
+            for member_data in group_data.members:
                 user = await self.get_or_create_user(
                     external_user_id=member_data.user_id,
                     first_name=member_data.first_name,
                     last_name=member_data.last_name,
                 )
-                await self.get_or_create_member(chatroom=chatroom, user=user)
+                await self.get_or_create_member(group=group, user=user)
 
-            # Create/update questions and their options
-            for question_data in group.questions:
+            # Create/update questions, group-question threads, and options
+            # Map question external_id to GroupQuestion object for message creation
+            group_question_map: Dict[str, GroupQuestion] = {}
+
+            for question_data in group_data.questions:
+                # Create/update the global Question
                 question = await self.get_or_create_question(
-                    chatroom=chatroom,
                     external_id=question_data.id,
                     text=question_data.text,
-                    status=question_data.status,
-                    unlock_order=question_data.unlock_order,
                 )
+
+                # Create/update question options
                 await self.create_or_update_question_options(
                     question=question, options=question_data.options
                 )
 
+                # Create/update the GroupQuestion thread
+                group_question = await self.get_or_create_group_question(
+                    group=group,
+                    question=question,
+                    status=question_data.status,
+                    unlock_order=question_data.unlock_order,
+                )
+
+                # Store mapping for message creation
+                group_question_map[question_data.id] = group_question
+                messages_by_group_by_question[group_id][question_data.id] = []
+
             # Create messages
-            new_messages: List[WebhookIncomingMessage] = group.messages
+            new_messages: List[WebhookIncomingMessage] = group_data.messages
             for message_data in new_messages:
                 # Get user
                 user = await self.get_or_create_user(
@@ -467,59 +533,63 @@ class MessageService:
                     last_name=message_data.last_name,
                 )
 
-                # Get question if message is associated with one
-                question = None
-                if message_data.question_id:
-                    question = await self.get_question_by_external_id(
-                        message_data.question_id
+                # Get GroupQuestion for this message
+                group_question = group_question_map.get(message_data.question_id)
+                if not group_question:
+                    logger.warning(
+                        f"GroupQuestion for question_id {message_data.question_id} "
+                        f"not found in group {group_id}. Skipping message."
                     )
-                    if not question:
-                        logger.warning(
-                            f"Question {message_data.question_id} not found for message"
-                        )
+                    continue
 
                 # Create message
                 message = await self.create_message(
-                    chatroom=chatroom,
+                    group=group,
                     user=user,
                     content=message_data.content,
                     timestamp=message_data.created_at,
-                    question=question,
+                    group_question=group_question,
                     is_ai=message_data.is_ai,
                 )
 
-                messages_by_group[group_id].append(message)
+                # Use the external_id from webhook data instead of accessing relationship
+                messages_by_group_by_question[group_id][message_data.question_id].append(message)
 
         await self.session.commit()
         logger.info(
-            f"Stored webhook content: {len(groups)} groups, "
-            f"{sum(len(msgs) for msgs in messages_by_group.values())} messages"
+            f"Stored webhook content: {len(groups)} groups,"
+            f"{sum(len(qs) for qs in messages_by_group_by_question.values())} group questions,"
+            f"{sum(len(q) for qs in messages_by_group_by_question.values() for q in qs.values())} total messages."
         )
 
-        return messages_by_group
+        return messages_by_group_by_question
 
     # ===== Facilitation Log CRUD Operations =====
 
     async def get_last_facilitation_time(
-        self, chatroom: Chatroom
+        self, group: Group, group_question: Optional[GroupQuestion] = None
     ) -> Optional[datetime]:
         """
-        Get timestamp of the last facilitation for a chatroom.
+        Get timestamp of the last facilitation for a group or group-question thread.
 
         Args:
-            chatroom: Chatroom object
+            group: Group object
+            group_question: Optional GroupQuestion to filter by specific thread
 
         Returns:
             Datetime of last facilitation or None
         """
+        conditions = [
+            FacilitationLog.group_id == group.id,
+            FacilitationLog.message_sent_at.isnot(None),
+        ]
+
+        if group_question:
+            conditions.append(FacilitationLog.group_question_id == group_question.id)
+
         result = await self.session.execute(
             select(FacilitationLog.message_sent_at)
-            .where(
-                and_(
-                    FacilitationLog.chatroom_id == chatroom.id,
-                    FacilitationLog.message_sent_at.isnot(None),
-                )
-            )
+            .where(and_(*conditions))
             .order_by(desc(FacilitationLog.message_sent_at))
             .limit(1)
         )
@@ -527,7 +597,8 @@ class MessageService:
 
     async def create_facilitation_log(
         self,
-        chatroom: Chatroom,
+        group: Group,
+        group_question: GroupQuestion,
         stage1_result: Optional[Dict[str, Any]],
         stage2_result: Optional[Dict[str, Any]],
         stage3_result: Optional[Dict[str, Any]],
@@ -536,10 +607,11 @@ class MessageService:
         message_sent_at: Optional[datetime] = None,
     ) -> FacilitationLog:
         """
-        Create a facilitation log entry.
+        Create a facilitation log entry for a group-question thread.
 
         Args:
-            chatroom: Chatroom object
+            group: Group object
+            group_question: GroupQuestion object (thread)
             stage1_result: Stage 1 result dict
             stage2_result: Stage 2 result dict
             stage3_result: Stage 3 result dict
@@ -551,7 +623,8 @@ class MessageService:
             Created FacilitationLog object
         """
         log = FacilitationLog(
-            chatroom_id=chatroom.id,
+            group_id=group.id,
+            group_question_id=group_question.id,
             triggered_at=datetime.now(),
             stage1_result=stage1_result,
             stage2_result=stage2_result,
@@ -563,7 +636,8 @@ class MessageService:
         self.session.add(log)
         await self.session.flush()
         logger.info(
-            f"Created facilitation log {log.id} for chatroom {chatroom.external_id}: {final_decision}"
+            f"Created facilitation log {log.id} for group {group.external_id}, "
+            f"thread {group_question.id}: {final_decision}"
         )
 
         return log

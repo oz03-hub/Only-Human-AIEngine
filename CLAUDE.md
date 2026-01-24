@@ -106,7 +106,7 @@ Database file: `data/aiengine.db` (SQLite for development)
 ## Reference Files
 
 - `facilitate.py` and `feature_extractor.py` - Pilot implementation for reference when building Phase 2
-- `models/rf_classifier.pkl` - Pre-trained Random Forest model
+- `models/temporal_classifier.pkl` - Pre-trained Random Forest model
 - `.env` - Environment variables (OPENAI_API_KEY, DATABASE_URL, etc.)
 
 ## Example Server Workflow
