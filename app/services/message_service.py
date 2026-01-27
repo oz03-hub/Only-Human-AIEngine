@@ -201,6 +201,79 @@ class MessageService:
 
     # ===== Question CRUD Operations =====
 
+    async def update_group_question_status(
+        self, group_external_id: int, question_external_id: str, new_status: str
+    ) -> Optional[GroupQuestion]:
+        """
+        Update existing group question status.
+
+        Args:
+            group_external_id: External ID of the group
+            question_external_id: External ID of the question
+            new_status: New status for the group question
+
+        Returns:
+            GroupQuestion object if found and updated, None otherwise
+        """
+        # Get group by external ID
+        result = await self.session.execute(
+            select(Group).where(Group.external_id == group_external_id)
+        )
+        group = result.scalar_one_or_none()
+
+        if not group:
+            logger.warning(
+                f"Cannot update question status: Group {group_external_id} not found"
+            )
+            return None
+
+        # Get question by external ID
+        result = await self.session.execute(
+            select(Question).where(Question.external_id == question_external_id)
+        )
+        question = result.scalar_one_or_none()
+
+        if not question:
+            logger.warning(
+                f"Cannot update question status: Question {question_external_id} not found"
+            )
+            return None
+
+        # Get GroupQuestion association
+        result = await self.session.execute(
+            select(GroupQuestion).where(
+                and_(
+                    GroupQuestion.group_id == group.id,
+                    GroupQuestion.question_id == question.id,
+                )
+            )
+        )
+        group_question = result.scalar_one_or_none()
+
+        if not group_question:
+            logger.warning(
+                f"Cannot update question status: GroupQuestion not found for "
+                f"group {group_external_id}, question {question_external_id}"
+            )
+            return None
+
+        # Update status if it changed
+        if group_question.status != new_status:
+            old_status = group_question.status
+            group_question.status = new_status
+            await self.session.flush()
+            logger.info(
+                f"Updated GroupQuestion status for group {group_external_id}, "
+                f"question {question_external_id}: {old_status} → {new_status}"
+            )
+        else:
+            logger.debug(
+                f"GroupQuestion status unchanged for group {group_external_id}, "
+                f"question {question_external_id}: {new_status}"
+            )
+
+        return group_question
+
     async def get_or_create_question(
         self,
         external_id: str,
@@ -437,9 +510,13 @@ class MessageService:
             since: Only get messages after this timestamp
 
         Returns:
-            List of Message objects ordered by timestamp
+            List of Message objects ordered by timestamp (with user relationship loaded)
         """
-        query = select(Message).where(Message.group_id == group.id)
+        query = (
+            select(Message)
+            .where(Message.group_id == group.id)
+            .options(selectinload(Message.user))  # Eagerly load user relationship
+        )
 
         if group_question:
             query = query.where(Message.group_question_id == group_question.id)
@@ -553,7 +630,9 @@ class MessageService:
                 )
 
                 # Use the external_id from webhook data instead of accessing relationship
-                messages_by_group_by_question[group_id][message_data.question_id].append(message)
+                messages_by_group_by_question[group_id][
+                    message_data.question_id
+                ].append(message)
 
         await self.session.commit()
         logger.info(

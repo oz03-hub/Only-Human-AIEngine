@@ -4,11 +4,12 @@ Receives incoming messages from the chat application, stores them, and initiates
 """
 
 import logging
+from typing import Tuple, List, Dict, Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.database import get_db
+from app.models.database import get_db, AsyncSessionLocal
 from app.models.schemas import (
     WebhookIncomingRequest,
     WebhookIncomingGroup,
@@ -19,12 +20,61 @@ from app.models.schemas import (
     GroupUpdateResponse,
 )
 from app.services.message_service import MessageService
+from app.services.facilitation_service import FacilitationService
+from app.services.webhook_client import WebhookClient
+from app.config import settings
 from app.api.middleware.auth import verify_api_key
-from typing import List
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/messages", tags=["messages"])
+
+
+async def process_facilitation_background(
+    group_question_id_pairs: List[Tuple[int, str]],
+) -> None:
+    """
+    Background task to process facilitation and send responses.
+
+    Args:
+        group_question_id_pairs: List of tuples of (group id, question id), each representing a message thread
+    """
+    logger.info("Starting background facilitation processing")
+
+    try:
+        # Create new database session for background task
+        async with AsyncSessionLocal() as session:
+            # Initialize services
+            facilitation_service = FacilitationService(session)
+            webhook_client = WebhookClient()
+
+            # Process facilitation for all threads
+            facilitation_responses = (
+                await facilitation_service.process_webhook_messages(
+                    group_question_id_pairs
+                )
+            )
+
+            # Send facilitation responses if any were generated
+            if facilitation_responses:
+                logger.info(
+                    f"Sending {len(facilitation_responses)} facilitation responses "
+                    "to external API"
+                )
+                success = await webhook_client.send_facilitation_responses(
+                    facilitation_responses
+                )
+
+                if success:
+                    logger.info("Successfully sent facilitation responses")
+                else:
+                    logger.error("Failed to send facilitation responses")
+            else:
+                logger.info("No facilitation responses generated")
+
+    except Exception as e:
+        logger.error(f"Error in background facilitation processing: {e}", exc_info=True)
+
 
 @router.patch(
     "/group_activity",
@@ -49,15 +99,16 @@ async def update_group(
     Returns:
         Success response with updated group information
     """
-    logger.info(f"Updating group {request.group_id} active status to {request.is_active}")
+    logger.info(
+        f"Updating group {request.group_id} active status to {request.is_active}"
+    )
 
     try:
         message_service = MessageService(session)
 
         # Update group active status
         group = await message_service.update_group_active_status(
-            external_id=request.group_id,
-            new_status=request.is_active
+            external_id=request.group_id, new_status=request.is_active
         )
 
         if not group:
@@ -112,7 +163,9 @@ async def get_messages(
     try:
         message_service = MessageService(session)
         group = await message_service.get_group_by_external_id(group_id)
-        message_history = await message_service.get_conversation_history(group, limit=20)
+        message_history = await message_service.get_conversation_history(
+            group, limit=20
+        )
 
         logger.info(f"Retrieved {len(message_history)} messages for group: {group_id}")
 
@@ -129,13 +182,13 @@ async def get_messages(
 
 
 @router.post(
-    "/webhook",
+    "/save",
     response_model=WebhookResponse,
     status_code=status.HTTP_200_OK,
     summary="Receive batch messages from chat application",
     description="Webhook endpoint that receives and stores messages. Returns 200 OK on success.",
 )
-async def receive_messages_webhook(
+async def save_messages(
     request: WebhookIncomingRequest,
     session: AsyncSession = Depends(get_db),
     _api_key: str = Depends(verify_api_key),
@@ -169,7 +222,88 @@ async def receive_messages_webhook(
         return WebhookResponse(
             status="success",
             groups_affected=len(messages_by_group_by_question),
-            question_threads_affected=sum(len(qs) for qs in messages_by_group_by_question.values()),
+            question_threads_affected=sum(
+                len(qs) for qs in messages_by_group_by_question.values()
+            ),
+            messages_received=sum(
+                len(q)
+                for qs in messages_by_group_by_question.values()
+                for q in qs.values()
+            ),
+        )
+
+    except Exception as e:
+        logger.error(f"Error processing webhook: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error processing messages: {str(e)}",
+        )
+
+
+@router.post(
+    "/webhook",
+    response_model=WebhookResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Receive batch messages from chat application",
+    description="Webhook endpoint that receives and stores messages, then triggers facilitation in background. Returns 200 OK immediately.",
+)
+async def receive_messages_webhook(
+    request: WebhookIncomingRequest,
+    background_tasks: BackgroundTasks,
+    session: AsyncSession = Depends(get_db),
+    _api_key: str = Depends(verify_api_key),
+):
+    """
+    Receive incoming messages from chat application webhook.
+
+    This endpoint:
+    1. Stores incoming messages in the database
+    2. Triggers facilitation processing in background
+    3. Returns 200 OK immediately with summary
+
+    Background task will:
+    - Run facilitation pipeline for each thread
+    - Send facilitation responses to external API if needed
+
+    Args:
+        request: Batch of messages from the chat application
+        background_tasks: FastAPI background tasks
+        session: Database session
+        _api_key: Validated API key (from header)
+
+    Returns:
+        Success response with count of messages and groups and question threads affected
+    """
+    logger.info(f"Received webhook with {len(request.groups)} groups")
+
+    try:
+        # Store messages
+        message_service = MessageService(session)
+        messages_by_group_by_question = await message_service.store_webhook_content(
+            request
+        )
+
+        logger.info("Successfully stored messages.")
+
+        group_question_id_pairs = {
+            (group.group_id, message.question_id)
+            for group in request.groups
+            for message in group.messages
+        }
+
+        # Add background task to process facilitation
+        background_tasks.add_task(
+            process_facilitation_background, list(group_question_id_pairs)
+        )
+        logger.info("Added facilitation processing to background tasks")
+
+        # Return immediately with success
+        return WebhookResponse(
+            status="success",
+            groups_affected=len(messages_by_group_by_question),
+            question_threads_affected=sum(
+                len(qs) for qs in messages_by_group_by_question.values()
+            ),
             messages_received=sum(
                 len(q)
                 for qs in messages_by_group_by_question.values()

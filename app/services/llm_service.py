@@ -5,13 +5,14 @@ Handles all interactions with the OpenAI API.
 
 import json
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 from openai import OpenAI, AsyncOpenAI
 from openai.types.chat import ChatCompletion
 
 from app.config import settings
 from app.core.prompts import STAGE_2_PROMPT, STAGE_3_PROMPT
+from app.models.database import Message
 
 logger = logging.getLogger(__name__)
 
@@ -33,9 +34,7 @@ class LLMService:
         logger.info(f"LLM service initialized with model: {self.model}")
 
     async def verify_facilitation_needed(
-        self,
-        conversation_text: str,
-        num_messages: int
+        self, conversation_text: str, num_messages: int
     ) -> Dict[str, Any]:
         """
         Stage 2: Use LLM to verify if facilitation is needed.
@@ -47,12 +46,13 @@ class LLMService:
         Returns:
             Dict with 'needs_facilitation' (bool), 'reasoning', 'confidence'
         """
-        logger.info(f"Stage 2: Verifying facilitation need for conversation with {num_messages} messages")
+        logger.info(
+            f"Stage 2: Verifying facilitation need for conversation with {num_messages} messages"
+        )
 
         # Format the prompt with the conversation
         prompt = STAGE_2_PROMPT.format(
-            len_recent_message=num_messages,
-            conversation_text=conversation_text
+            len_recent_message=num_messages, conversation_text=conversation_text
         )
 
         try:
@@ -61,12 +61,12 @@ class LLMService:
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are an expert online support group facilitator. Respond only with valid JSON."
+                        "content": "You are an expert online support group facilitator. Respond only with valid JSON.",
                     },
-                    {"role": "user", "content": prompt}
+                    {"role": "user", "content": prompt},
                 ],
                 temperature=0.7,
-                response_format={"type": "json_object"}
+                response_format={"type": "json_object"},
             )
 
             result = json.loads(response.choices[0].message.content)
@@ -84,9 +84,7 @@ class LLMService:
             }
 
     async def generate_facilitation_message(
-        self,
-        conversation_text: str,
-        verification_reasoning: str
+        self, conversation_text: str, verification_reasoning: str
     ) -> Dict[str, Any]:
         """
         Stage 3: Generate facilitation message using LLM.
@@ -103,7 +101,7 @@ class LLMService:
         # Format the prompt
         prompt = STAGE_3_PROMPT.format(
             verification_reasoning=verification_reasoning,
-            conversation_text=conversation_text
+            conversation_text=conversation_text,
         )
 
         try:
@@ -112,12 +110,12 @@ class LLMService:
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are an expert online support group facilitator specializing in caregiver support. Respond only with valid JSON."
+                        "content": "You are an expert online support group facilitator specializing in caregiver support. Respond only with valid JSON.",
                     },
-                    {"role": "user", "content": prompt}
+                    {"role": "user", "content": prompt},
                 ],
                 temperature=0.7,
-                response_format={"type": "json_object"}
+                response_format={"type": "json_object"},
             )
 
             result = json.loads(response.choices[0].message.content)
@@ -129,15 +127,17 @@ class LLMService:
             logger.error(f"Error calling OpenAI API for stage 3: {e}", exc_info=True)
             return {
                 "facilitation_message": "How is everyone doing?",
-                "approach": f"Error - fallback message (error: {str(e)})"
+                "approach": f"Error - fallback message (error: {str(e)})",
             }
 
-    def format_conversation(self, messages: list, last_n: Optional[int] = None) -> str:
+    def format_conversation(
+        self, messages: List[Message], last_n: Optional[int] = None
+    ) -> str:
         """
         Format messages into a conversation string for LLM.
 
         Args:
-            messages: List of message objects with sender_name, timestamp, content
+            messages: List of Message objects (with user relationship loaded)
             last_n: Number of recent messages to include (None = all)
 
         Returns:
@@ -148,19 +148,20 @@ class LLMService:
 
         conversation_lines = []
         for msg in messages:
-            # Handle both database objects and dicts
-            if hasattr(msg, 'timestamp'):
-                time_str = msg.timestamp.strftime('%H:%M')
-                sender_name = msg.sender_name
-                sender_id = msg.sender_id
+            if hasattr(msg, "timestamp"):
+                time_str = msg.timestamp.strftime("%H:%M")
+                sender_name = msg.user.first_name
+                sender_id = msg.user_id
                 content = msg.content
             else:
-                timestamp = msg.get('timestamp') or msg.get('time')
-                time_str = timestamp.strftime('%H:%M') if timestamp else 'Unknown'
-                sender_id = msg.get('sender_id', '0000')
-                sender_name = msg.get('sender_name', msg.get('sender', 'Unknown'))
-                content = msg.get('content', '')
+                timestamp = msg.get("timestamp") or msg.get("time")
+                time_str = timestamp.strftime("%H:%M") if timestamp else "Unknown"
+                sender_id = msg.get("sender_id", "0000")
+                sender_name = msg.get("sender_name", msg.get("sender", "Unknown"))
+                content = msg.get("content", "")
 
-            conversation_lines.append(f"[{time_str}] ({sender_id}) {sender_name}: {content}")
+            conversation_lines.append(
+                f"[{time_str}] ({sender_id}) {sender_name}: {content}"
+            )
 
         return "\n".join(conversation_lines)

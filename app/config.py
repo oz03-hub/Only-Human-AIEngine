@@ -29,9 +29,20 @@ class Settings(BaseSettings):
 
     # Application
     # unknown url right now
-    application_url: str = Field(
+    application_webhook_url: str = Field(
         default="onlyhuman.com",
-        description="API Endpoint to send facilitation messages",
+        description="Webhook URL to POST facilitation messages back to application",
+    )
+
+    # Facilitation
+    min_messages: int = Field(
+        default=5,
+        description="Minimum number of messages to start the facilitation",
+    )
+
+    limit_messages: int = Field(
+        default=10,
+        description="Number of messages retrieved from threads by default"
     )
 
     # OpenAI

@@ -3,8 +3,9 @@ Multi-stage facilitation decision pipeline.
 Implements the 3-stage decision process with early termination.
 """
 
+import asyncio
 import logging
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Callable, TypeVar
 import joblib
 import numpy as np
 
@@ -15,6 +16,65 @@ from app.services.llm_service import LLMService
 
 logger = logging.getLogger(__name__)
 
+T = TypeVar('T')
+
+
+async def retry_with_exponential_backoff(
+    func: Callable[..., T],
+    max_retries: int = 3,
+    initial_delay: float = 1.0,
+    max_delay: float = 10.0,
+    exponential_base: float = 2.0,
+    *args,
+    **kwargs
+) -> T:
+    """
+    Retry an async function with exponential backoff.
+
+    Args:
+        func: Async function to retry
+        max_retries: Maximum number of retry attempts
+        initial_delay: Initial delay in seconds
+        max_delay: Maximum delay in seconds
+        exponential_base: Base for exponential backoff
+        *args: Positional arguments for func
+        **kwargs: Keyword arguments for func
+
+    Returns:
+        Result from func
+
+    Raises:
+        Exception: Last exception if all retries fail
+    """
+    last_exception = None
+
+    for attempt in range(max_retries + 1):
+        try:
+            return await func(*args, **kwargs)
+        except Exception as e:
+            last_exception = e
+
+            if attempt == max_retries:
+                logger.error(
+                    f"Failed after {max_retries} retries. Last error: {e}",
+                    exc_info=True
+                )
+                raise
+
+            # Calculate delay with exponential backoff
+            delay = min(initial_delay * (exponential_base ** attempt), max_delay)
+
+            logger.warning(
+                f"Attempt {attempt + 1}/{max_retries + 1} failed: {e}. "
+                f"Retrying in {delay:.1f}s..."
+            )
+
+            await asyncio.sleep(delay)
+
+    # Should never reach here, but for type safety
+    if last_exception:
+        raise last_exception
+
 
 class FacilitationDecisionPipeline:
     """Multi-stage decision pipeline for chat facilitation."""
@@ -22,7 +82,8 @@ class FacilitationDecisionPipeline:
     def __init__(
         self,
         llm_service: Optional[LLMService] = None,
-        model_path: Optional[str] = None
+        model_path: Optional[str] = None,
+        max_retries: int = 3
     ):
         """
         Initialize the facilitation pipeline.
@@ -30,9 +91,11 @@ class FacilitationDecisionPipeline:
         Args:
             llm_service: LLM service instance (creates new one if not provided)
             model_path: Path to trained Random Forest classifier
+            max_retries: Maximum number of retries for LLM calls (default: 3)
         """
         self.llm_service = llm_service or LLMService()
         self.model_path = model_path or settings.model_path
+        self.max_retries = max_retries
 
         # Load the trained Random Forest model
         logger.info(f"Loading trained model from {self.model_path}...")
@@ -132,8 +195,10 @@ class FacilitationDecisionPipeline:
         # Format conversation for LLM
         conversation_text = self.llm_service.format_conversation(recent_messages)
 
-        # Call LLM service
-        result = await self.llm_service.verify_facilitation_needed(
+        # Call LLM service with retry logic
+        result = await retry_with_exponential_backoff(
+            self.llm_service.verify_facilitation_needed,
+            max_retries=self.max_retries,
             conversation_text=conversation_text,
             num_messages=len(recent_messages)
         )
@@ -172,8 +237,10 @@ class FacilitationDecisionPipeline:
         # Format conversation for LLM
         conversation_text = self.llm_service.format_conversation(recent_messages)
 
-        # Call LLM service
-        result = await self.llm_service.generate_facilitation_message(
+        # Call LLM service with retry logic
+        result = await retry_with_exponential_backoff(
+            self.llm_service.generate_facilitation_message,
+            max_retries=self.max_retries,
             conversation_text=conversation_text,
             verification_reasoning=verification_reasoning
         )
