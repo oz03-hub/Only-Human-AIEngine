@@ -228,7 +228,7 @@ class FacilitationService:
             {
                 "id": log.id,
                 "triggered_at": log.triggered_at.isoformat(),
-                "final_decision": log.final_decision.value,
+                "final_decision": log.final_decision.value if hasattr(log.final_decision, 'value') else log.final_decision,
                 "facilitation_message": log.facilitation_message,
                 "message_sent_at": log.message_sent_at.isoformat()
                 if log.message_sent_at

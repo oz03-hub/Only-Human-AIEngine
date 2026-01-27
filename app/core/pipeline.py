@@ -141,8 +141,7 @@ class FacilitationDecisionPipeline:
         logger.info("="*60)
 
         # Extract features from the conversation
-        current_index = len(messages) - 1
-        extractor = TemporalFeatureExtractor(messages, current_index)
+        extractor = TemporalFeatureExtractor(messages)
         features = extractor.extract_all_features()
 
         logger.info(f"Extracted features:")

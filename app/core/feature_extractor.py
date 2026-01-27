@@ -19,6 +19,8 @@ class TemporalFeatureExtractor:
         """
         self.messages = messages
         self.timestamps = self._extract_timestamps()
+        # Use last message as the "current" point for time-based features
+        self.current_index = len(messages) - 1 if messages else 0
 
     def _extract_timestamps(self) -> List[datetime]:
         """Extract datetime objects from messages."""
