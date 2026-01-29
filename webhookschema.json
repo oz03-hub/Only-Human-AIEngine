@@ -95,5 +95,23 @@
             ],
             "last_ai_message_at": "2024-01-14T11:30:00Z"
         }
+    ],
+    "groups_metadata": [
+        {
+            "status": "pending",
+            "group_id": 1
+        },
+        {
+            "status": "active",
+            "group_id": 2
+        },
+        {
+            "status": "archived",
+            "group_id": 4
+        },
+        {
+            "status": "completed",
+            "group_id": 5
+        }
     ]
 }

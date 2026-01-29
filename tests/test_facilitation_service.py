@@ -5,12 +5,14 @@ Tests for the facilitation service.
 import pytest
 import pytest_asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime
+from datetime import datetime, timedelta
+
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.facilitation_service import FacilitationService
 from app.services.message_service import MessageService
 from app.core.pipeline import FacilitationDecisionPipeline
-from app.models.database import Group, GroupQuestion, FacilitationLog
+from app.models.database import Group, GroupQuestion, FacilitationLog, User, Message
 
 
 class TestFacilitationService:
@@ -338,3 +340,273 @@ class TestFacilitationService:
         assert len(logs) == 1
         assert logs[0]['final_decision'] == 'FACILITATE'
         assert logs[0]['facilitation_message'] == 'Test message'
+
+
+class TestFacilitationPipelineIntegration:
+    """Integration tests for the full facilitation pipeline (no mocks)."""
+
+    @pytest_asyncio.fixture
+    async def real_facilitation_service(self, db_session):
+        """Create facilitation service with real pipeline (no mocking)."""
+        from app.services.facilitation_service import FacilitationService
+        service = FacilitationService(db_session)
+        yield service
+
+    @pytest_asyncio.fixture
+    async def longer_conversation(
+        self,
+        db_session: AsyncSession,
+        test_group: Group,
+        test_group_question: GroupQuestion,
+    ):
+        """Create a longer, realistic conversation for integration testing."""
+        # Create multiple users
+        users = []
+        user_names = [
+            ("Alice", "Johnson"),
+            ("Bob", "Smith"),
+            ("Charlie", "Brown"),
+            ("Diana", "Martinez"),
+        ]
+
+        for i, (first_name, last_name) in enumerate(user_names):
+            user = User(
+                external_user_id=f"user-{i+1}",
+                first_name=first_name,
+                last_name=last_name,
+                created_at=datetime.now()
+            )
+            db_session.add(user)
+            users.append(user)
+
+        await db_session.flush()
+
+        # Create a realistic conversation about climate change with various patterns
+        base_time = datetime.now() - timedelta(hours=2)
+        messages = []
+
+        conversation_data = [
+            (0, 0, "I've been thinking a lot about climate change lately. It's really overwhelming."),
+            (1, 5, "I feel the same way. Sometimes I don't know where to start making a difference."),
+            (2, 8, "Have any of you made lifestyle changes to reduce your carbon footprint?"),
+            (0, 12, "I've started composting and using public transit more often."),
+            (3, 15, "That's great! I've been trying to reduce single-use plastics."),
+            (1, 18, "I installed solar panels last year. It was expensive but worth it."),
+            (2, 22, "Wow, solar panels! That's a big commitment. How much did it help with your energy bills?"),
+            (1, 25, "My bills dropped by about 60%. Plus there are tax incentives."),
+            (0, 30, "That's impressive. I wish more people knew about these options."),
+            (3, 35, "The challenge is that not everyone can afford the upfront costs."),
+            (2, 40, "True. But even small changes add up, right?"),
+            (1, 45, "Absolutely. Every little bit helps."),
+            (0, 55, "I've also been educating my kids about environmental issues."),
+            (3, 60, "That's so important. The next generation needs to be informed."),
+            (2, 70, "Does anyone else feel anxious about the future of our planet?"),
+            (0, 75, "All the time. It keeps me up at night sometimes."),
+            (1, 80, "I try to focus on what I can control rather than the big picture."),
+            (3, 85, "That's a healthy approach. We can't solve everything alone."),
+            (2, 95, "You're right. Maybe we should organize a community cleanup event?"),
+            (0, 100, "I'd be interested in that! Let me know if you set something up."),
+        ]
+
+        for user_idx, minutes_offset, content in conversation_data:
+            msg = Message(
+                group_id=test_group.id,
+                group_question_id=test_group_question.id,
+                user_id=users[user_idx].id,
+                content=content,
+                timestamp=base_time + timedelta(minutes=minutes_offset),
+                is_ai=False,
+                created_at=datetime.now()
+            )
+            db_session.add(msg)
+            messages.append(msg)
+
+        await db_session.flush()
+
+        # Refresh messages to load relationships
+        for msg in messages:
+            await db_session.refresh(msg, ['user'])
+
+        return messages
+
+    @pytest.mark.asyncio
+    async def test_full_pipeline_execution_longer_conversation(
+        self,
+        real_facilitation_service,
+        test_group,
+        test_group_question,
+        longer_conversation,
+        db_session
+    ):
+        """
+        Integration test: Run the full pipeline on a longer conversation.
+
+        This test verifies that the entire pipeline executes without errors:
+        - Stage 1: Random Forest temporal classification
+        - Stage 2: LLM verification (calls OpenAI API)
+        - Stage 3: LLM message generation (calls OpenAI API)
+
+        The actual decision result doesn't matter - we just want to ensure
+        the pipeline completes successfully without exceptions.
+        """
+        # Run the full facilitation check with real pipeline
+        result = await real_facilitation_service.check_and_facilitate(
+            test_group,
+            test_group_question,
+            min_messages=5,  # We have 20 messages, so this will pass
+            limit_messages=10
+        )
+
+        # Verify the pipeline completed successfully
+        assert result is not None
+        assert 'decision' in result
+        assert 'pipeline_result' in result
+
+        # Verify pipeline result structure
+        pipeline_result = result['pipeline_result']
+        assert 'stage1' in pipeline_result
+        assert 'final_decision' in pipeline_result
+
+        # Stage 1 should always run
+        assert pipeline_result['stage1'] is not None
+        assert 'should_facilitate' in pipeline_result['stage1']
+        assert 'probability' in pipeline_result['stage1']
+        assert 'features' in pipeline_result['stage1']
+
+        # Verify features were extracted
+        features = pipeline_result['stage1']['features']
+        assert 'messages_last_30min' in features
+        assert 'messages_last_hour' in features
+        assert 'time_since_last_message_min' in features
+
+        # If stage1 decided to facilitate, stage2 should have run
+        if pipeline_result['stage1']['should_facilitate']:
+            assert pipeline_result['stage2'] is not None
+            assert 'needs_facilitation' in pipeline_result['stage2']
+            assert 'reasoning' in pipeline_result['stage2']
+
+            # If stage2 also said yes, stage3 should have run
+            if pipeline_result['stage2']['needs_facilitation']:
+                assert pipeline_result['stage3'] is not None
+                assert 'facilitation_message' in pipeline_result['stage3']
+                assert 'approach' in pipeline_result['stage3']
+                assert pipeline_result['final_decision'] == 'FACILITATE'
+                assert result['message'] is not None
+            else:
+                # Stage2 said no, stage3 shouldn't run
+                assert pipeline_result['stage3'] is None
+                assert result['message'] is None
+        else:
+            # Stage1 said no, stages 2 and 3 shouldn't run
+            assert pipeline_result['stage2'] is None
+            assert pipeline_result['stage3'] is None
+            assert result['message'] is None
+
+        # Verify a log was created
+        assert result['log_id'] is not None
+
+        # Verify the log was actually saved to the database
+        from sqlalchemy import select
+        log_result = await db_session.execute(
+            select(FacilitationLog).where(FacilitationLog.id == result['log_id'])
+        )
+        log = log_result.scalar_one()
+
+        assert log is not None
+        assert log.group_id == test_group.id
+        assert log.group_question_id == test_group_question.id
+        assert log.stage1_result is not None
+
+        # Success - the pipeline executed without errors!
+
+    @pytest.mark.asyncio
+    async def test_full_pipeline_execution_conflict_conversation(
+        self,
+        real_facilitation_service,
+        test_group,
+        test_group_question,
+        db_session
+    ):
+        """
+        Integration test: Run pipeline on a conversation with conflict patterns.
+
+        This tests a different conversation pattern with disagreement and tension
+        to see how the pipeline handles various conversation dynamics.
+        """
+        # Create users
+        users = []
+        for i in range(3):
+            user = User(
+                external_user_id=f"conflict-user-{i+1}",
+                first_name=f"User{i+1}",
+                last_name="Test",
+                created_at=datetime.now()
+            )
+            db_session.add(user)
+            users.append(user)
+
+        await db_session.flush()
+
+        # Create a conversation with conflict and tension
+        base_time = datetime.now() - timedelta(hours=1)
+        messages = []
+
+        conversation_data = [
+            (0, 0, "I think we should focus on economic growth first."),
+            (1, 3, "I strongly disagree. Environmental protection should be the priority."),
+            (0, 5, "But without economic stability, we can't afford environmental programs."),
+            (1, 7, "That's shortsighted. We won't have an economy if we destroy the planet."),
+            (2, 10, "Both perspectives have merit. Can we find a middle ground?"),
+            (0, 12, "I'm not sure there is a middle ground here."),
+            (1, 14, "Exactly. This is too important to compromise on."),
+            (2, 18, "Maybe we're looking at this the wrong way..."),
+            (0, 22, "What do you mean?"),
+            (1, 25, "Yeah, I'm curious what you're thinking."),
+            (2, 28, "What if we considered policies that address both concerns simultaneously?"),
+            (0, 32, "Like what?"),
+            (2, 35, "Green jobs programs, for example. They create economic opportunity while helping the environment."),
+            (1, 38, "That's actually a good point."),
+            (0, 40, "I could get behind something like that."),
+        ]
+
+        for user_idx, minutes_offset, content in conversation_data:
+            msg = Message(
+                group_id=test_group.id,
+                group_question_id=test_group_question.id,
+                user_id=users[user_idx].id,
+                content=content,
+                timestamp=base_time + timedelta(minutes=minutes_offset),
+                is_ai=False,
+                created_at=datetime.now()
+            )
+            db_session.add(msg)
+            messages.append(msg)
+
+        await db_session.flush()
+
+        for msg in messages:
+            await db_session.refresh(msg, ['user'])
+
+        # Run the pipeline
+        result = await real_facilitation_service.check_and_facilitate(
+            test_group,
+            test_group_question,
+            min_messages=5,
+            limit_messages=10
+        )
+
+        # Verify completion without errors
+        assert result is not None
+        assert 'decision' in result
+        assert 'pipeline_result' in result
+        assert result['log_id'] is not None
+
+        # Verify log was saved
+        from sqlalchemy import select
+        log_result = await db_session.execute(
+            select(FacilitationLog).where(FacilitationLog.id == result['log_id'])
+        )
+        log = log_result.scalar_one()
+        assert log is not None
+
+        # Success - pipeline handled conflict conversation without errors!

@@ -1,0 +1,99 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: aiengine
+  annotations:
+    run.googleapis.com/launch-stage: BETA
+    run.googleapis.com/ingress: all  # or 'internal' for VPC-only access
+spec:
+  template:
+    metadata:
+      annotations:
+        # Enable Cloud SQL connections via Cloud SQL Proxy sidecar
+        run.googleapis.com/cloudsql-instances: PROJECT_ID:REGION:INSTANCE_NAME
+        # Allocate more CPU during request processing
+        run.googleapis.com/cpu-throttling: 'false'
+        # Set execution environment to gen2 (recommended)
+        run.googleapis.com/execution-environment: gen2
+    spec:
+      # Service account with Cloud SQL Client role
+      serviceAccountName: aiengine-sa@PROJECT_ID.iam.gserviceaccount.com
+
+      # Container timeout (max 3600s for Cloud Run)
+      timeoutSeconds: 300
+
+      containers:
+      - name: aiengine
+        # Update with your GCP Artifact Registry path
+        image: REGION-docker.pkg.dev/PROJECT_ID/aiengine/aiengine:latest
+
+        ports:
+        - name: http1
+          containerPort: 8000
+
+        env:
+        # Database connection (Cloud SQL Proxy uses Unix socket)
+        - name: DATABASE_URL
+          value: postgresql+asyncpg://USER:PASSWORD@/DATABASE?host=/cloudsql/PROJECT_ID:REGION:INSTANCE_NAME
+
+        # OpenAI API Key (use Secret Manager in production)
+        - name: OPENAI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: openai-api-key
+              key: latest
+
+        # API Security (use Secret Manager in production)
+        - name: API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: api-key
+              key: latest
+
+        # Application Configuration
+        - name: ENV
+          value: production
+        - name: LOG_LEVEL
+          value: INFO
+        - name: MODEL_PATH
+          value: models/rf_classifier.pkl
+        - name: LLM_MODEL
+          value: gpt-4o-mini
+        - name: MIN_MESSAGES
+          value: "5"
+        - name: LIMIT_MESSAGES
+          value: "10"
+
+        # Cloud Run sets this automatically
+        - name: PORT
+          value: "8000"
+
+        resources:
+          limits:
+            # Adjust based on your needs (max 8 CPUs, 32Gi memory for Cloud Run)
+            cpu: "2"
+            memory: 2Gi
+
+        # Startup probe (gives app time to start)
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          failureThreshold: 3
+
+        # Liveness probe (restarts container if unhealthy)
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+
+      # Auto-scaling configuration
+      scaling:
+        minScale: 0  # Scale to zero when idle (set to 1+ for always-on)
+        maxScale: 10  # Adjust based on expected load

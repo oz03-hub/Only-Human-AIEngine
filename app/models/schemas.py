@@ -11,6 +11,13 @@ from app.models.database import FacilitationDecision
 
 
 # ===== Webhook Schemas =====
+class WebhookIncomingGroupMetadata(BaseModel):
+    group_id: int = Field(..., alias="group_id")
+    status: str = Field(..., alias="status")
+
+class WebhookIncomingGroupsMetadata(BaseModel):
+    groups_metadata: List[WebhookIncomingGroupMetadata] = Field(..., alias="groups_metadata")
+
 class WebhookIncomingGroupMember(BaseModel):
     user_id: str = Field(
         ..., alias="user_id", description="User UUID from external system"
