@@ -32,3 +32,4 @@ httpx>=0.26.0              # Async test client
 
 # Production
 gunicorn>=21.0.0           # Production WSGI server
+httpx

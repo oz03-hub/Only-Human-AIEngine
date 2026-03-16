@@ -5,7 +5,7 @@ Receives incoming messages from the chat application, stores them, and initiates
 
 import logging
 import random
-from typing import Tuple, List, Dict, Any
+from typing import Tuple, List
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,8 +13,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.database import get_db, AsyncSessionLocal
 from app.models.schemas import (
     WebhookIncomingRequest,
-    WebhookIncomingGroup,
-    WebhookIncomingMessage,
     WebhookResponse,
     MessageResponse,
     GroupUpdateRequest,
@@ -23,7 +21,6 @@ from app.models.schemas import (
 from app.services.message_service import MessageService
 from app.services.facilitation_service import FacilitationService
 from app.services.webhook_client import WebhookClient
-from app.config import settings
 from app.api.middleware.auth import verify_api_key
 
 logger = logging.getLogger(__name__)
@@ -214,7 +211,9 @@ async def save_messages(
     try:
         # Store messages
         message_service = MessageService(session)
-        messages_by_group_by_question = await message_service.store_webhook_content(request)
+        messages_by_group_by_question = await message_service.store_webhook_content(
+            request
+        )
 
         logger.info("Successfully stored messages.")
 
@@ -278,7 +277,9 @@ async def receive_messages_webhook(
     try:
         # Store messages and sync state
         message_service = MessageService(session)
-        messages_by_group_by_question = await message_service.store_webhook_content(request)
+        messages_by_group_by_question = await message_service.store_webhook_content(
+            request
+        )
 
         logger.info("Successfully stored messages.")
 

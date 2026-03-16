@@ -165,14 +165,25 @@ gcloud run deploy $SERVICE_NAME \
   --add-cloudsql-instances=$PROJECT_ID:$REGION:$DB_INSTANCE_NAME \
   --set-env-vars="DATABASE_URL=postgresql+asyncpg://$DB_USER:PASSWORD@/$DB_NAME?host=/cloudsql/$PROJECT_ID:$REGION:$DB_INSTANCE_NAME" \
   --set-secrets="OPENAI_API_KEY=openai-api-key:latest,API_KEY=api-key:latest" \
-  --set-env-vars="ENV=production,LOG_LEVEL=INFO,MODEL_PATH=models/rf_classifier.pkl,LLM_MODEL=gpt-4o-mini" \
-  --cpu=2 \
-  --memory=2Gi \
+  --set-env-vars="ENV=production,LOG_LEVEL=INFO,MODEL_PATH=models/temporal_classifier.pkl" \
+  --cpu=1 \
+  --memory=512Mi \
   --timeout=300 \
-  --min-instances=0 \
-  --max-instances=10 \
+  --min-instances=1 \
+  --max-instances=1 \
+  --no-cpu-throttling \
   --allow-unauthenticated
 ```
+
+### Scaling Notes
+
+**Why `--min-instances=1`:** Keeps the instance always warm. Cold starts load the Random Forest model (`joblib.load`) and initialize the DB connection pool, adding several seconds of latency on first request.
+
+**Why `--max-instances=1`:** The facilitation pipeline is sequential LLM calls (stages 2–4), so adding more instances does not reduce per-request latency. The only benefit of scaling out would be handling concurrent incoming webhooks, which at current scale (~50 users, 20-min polling interval) will essentially never happen. One instance is sufficient.
+
+**Why `--no-cpu-throttling`:** By default, Cloud Run throttles CPU after the HTTP response is sent. The webhook returns 200 immediately and hands off to FastAPI's `BackgroundTasks`, which then runs the facilitation pipeline. Without this flag, the background task gets CPU-starved mid-pipeline. With `--min-instances=1` you are paying for the idle instance regardless, so always-on CPU costs nothing extra.
+
+**Do we need Cloud Tasks?** No, not at this scale. `BackgroundTasks` + `--no-cpu-throttling` is sufficient. Cloud Tasks would add guaranteed delivery and retry semantics but also adds infra complexity. Revisit if the number of groups grows significantly or if silent pipeline failures become a concern.
 
 ## Step 8: Run Database Migrations
 

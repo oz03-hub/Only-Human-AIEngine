@@ -69,7 +69,7 @@ async def root():
         "name": "AIEngine",
         "version": "1.0.0",
         "description": "Multi-stage chat facilitation AI system",
-        "status": "running"
+        "status": "running",
     }
 
 
@@ -81,5 +81,5 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=8000,
         reload=(settings.env == "development"),
-        log_level=settings.log_level.lower()
+        log_level=settings.log_level.lower(),
     )

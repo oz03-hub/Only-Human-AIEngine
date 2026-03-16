@@ -16,35 +16,23 @@ class TestWebhookClient:
     def webhook_client(self):
         """Create webhook client with test URL."""
         return WebhookClient(
-            webhook_url="https://test-api.com/facilitation",
-            timeout=10.0,
-            max_retries=3
+            webhook_url="https://test-api.com/facilitation", timeout=10.0, max_retries=3
         )
 
     @pytest.fixture
     def sample_responses(self):
         """Sample facilitation responses."""
         return [
-            {
-                "group_id": 123,
-                "question_id": "q1",
-                "message": "How is everyone doing?"
-            },
-            {
-                "group_id": 456,
-                "question_id": "q2",
-                "message": "Great discussion!"
-            }
+            {"group_id": 123, "question_id": "q1", "message": "How is everyone doing?"},
+            {"group_id": 456, "question_id": "q2", "message": "Great discussion!"},
         ]
 
     @pytest.mark.asyncio
     async def test_send_facilitation_responses_success(
-        self,
-        webhook_client,
-        sample_responses
+        self, webhook_client, sample_responses
     ):
         """Test successful sending of facilitation responses."""
-        with patch('httpx.AsyncClient') as mock_client_class:
+        with patch("httpx.AsyncClient") as mock_client_class:
             mock_client = MagicMock()
             mock_response = MagicMock()
             mock_response.status_code = 200
@@ -63,7 +51,7 @@ class TestWebhookClient:
 
             # Verify payload structure
             call_args = mock_client.post.call_args
-            assert call_args[0][0] == "https://test-api.com/facilitation"
+            assert call_args[0][0] == "https://test-api.com/facilitation/api/ai/facilitation"
             payload = call_args[1]["json"]
             assert "facilitation_responses" in payload
             assert len(payload["facilitation_responses"]) == 2
@@ -87,13 +75,9 @@ class TestWebhookClient:
         assert result is False
 
     @pytest.mark.asyncio
-    async def test_send_retry_on_server_error(
-        self,
-        webhook_client,
-        sample_responses
-    ):
+    async def test_send_retry_on_server_error(self, webhook_client, sample_responses):
         """Test retry logic on server errors (5xx)."""
-        with patch('httpx.AsyncClient') as mock_client_class:
+        with patch("httpx.AsyncClient") as mock_client_class:
             mock_client = MagicMock()
 
             # First two calls fail with 500, third succeeds
@@ -101,9 +85,7 @@ class TestWebhookClient:
             fail_response.status_code = 500
             fail_response.raise_for_status = MagicMock(
                 side_effect=httpx.HTTPStatusError(
-                    "Server Error",
-                    request=MagicMock(),
-                    response=fail_response
+                    "Server Error", request=MagicMock(), response=fail_response
                 )
             )
 
@@ -122,29 +104,27 @@ class TestWebhookClient:
             # Use short delays for testing
             webhook_client.max_retries = 2
 
-            with patch('asyncio.sleep', new_callable=AsyncMock):
-                result = await webhook_client.send_facilitation_responses(sample_responses)
+            with patch("asyncio.sleep", new_callable=AsyncMock):
+                result = await webhook_client.send_facilitation_responses(
+                    sample_responses
+                )
 
             assert result is True
             assert mock_client.post.call_count == 3
 
     @pytest.mark.asyncio
     async def test_send_no_retry_on_client_error(
-        self,
-        webhook_client,
-        sample_responses
+        self, webhook_client, sample_responses
     ):
         """Test that client errors (4xx) are not retried."""
-        with patch('httpx.AsyncClient') as mock_client_class:
+        with patch("httpx.AsyncClient") as mock_client_class:
             mock_client = MagicMock()
 
             fail_response = MagicMock()
             fail_response.status_code = 400
             fail_response.raise_for_status = MagicMock(
                 side_effect=httpx.HTTPStatusError(
-                    "Bad Request",
-                    request=MagicMock(),
-                    response=fail_response
+                    "Bad Request", request=MagicMock(), response=fail_response
                 )
             )
 
@@ -161,22 +141,16 @@ class TestWebhookClient:
             assert mock_client.post.call_count == 1
 
     @pytest.mark.asyncio
-    async def test_send_max_retries_exceeded(
-        self,
-        webhook_client,
-        sample_responses
-    ):
+    async def test_send_max_retries_exceeded(self, webhook_client, sample_responses):
         """Test behavior when max retries is exceeded."""
-        with patch('httpx.AsyncClient') as mock_client_class:
+        with patch("httpx.AsyncClient") as mock_client_class:
             mock_client = MagicMock()
 
             fail_response = MagicMock()
             fail_response.status_code = 503
             fail_response.raise_for_status = MagicMock(
                 side_effect=httpx.HTTPStatusError(
-                    "Service Unavailable",
-                    request=MagicMock(),
-                    response=fail_response
+                    "Service Unavailable", request=MagicMock(), response=fail_response
                 )
             )
 
@@ -186,21 +160,19 @@ class TestWebhookClient:
 
             mock_client_class.return_value = mock_client
 
-            with patch('asyncio.sleep', new_callable=AsyncMock):
-                result = await webhook_client.send_facilitation_responses(sample_responses)
+            with patch("asyncio.sleep", new_callable=AsyncMock):
+                result = await webhook_client.send_facilitation_responses(
+                    sample_responses
+                )
 
             # Should fail after all retries
             assert result is False
             assert mock_client.post.call_count == 4  # Initial + 3 retries
 
     @pytest.mark.asyncio
-    async def test_send_network_error_retry(
-        self,
-        webhook_client,
-        sample_responses
-    ):
+    async def test_send_network_error_retry(self, webhook_client, sample_responses):
         """Test retry on network errors."""
-        with patch('httpx.AsyncClient') as mock_client_class:
+        with patch("httpx.AsyncClient") as mock_client_class:
             mock_client = MagicMock()
 
             # Simulate network errors then success
@@ -212,7 +184,7 @@ class TestWebhookClient:
                 side_effect=[
                     httpx.RequestError("Network error"),
                     httpx.TimeoutException("Timeout"),
-                    success_response
+                    success_response,
                 ]
             )
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)
@@ -220,24 +192,23 @@ class TestWebhookClient:
 
             mock_client_class.return_value = mock_client
 
-            with patch('asyncio.sleep', new_callable=AsyncMock):
-                result = await webhook_client.send_facilitation_responses(sample_responses)
+            with patch("asyncio.sleep", new_callable=AsyncMock):
+                result = await webhook_client.send_facilitation_responses(
+                    sample_responses
+                )
 
             assert result is True
             assert mock_client.post.call_count == 3
 
     @pytest.mark.asyncio
-    async def test_send_validates_response_schema(
-        self,
-        webhook_client
-    ):
+    async def test_send_validates_response_schema(self, webhook_client):
         """Test that responses are validated before sending."""
         # Invalid response missing required field
         invalid_responses = [
             {
                 "group_id": 123,
                 # Missing "question_id"
-                "message": "Test"
+                "message": "Test",
             }
         ]
 
@@ -246,12 +217,10 @@ class TestWebhookClient:
 
     @pytest.mark.asyncio
     async def test_send_includes_correct_headers(
-        self,
-        webhook_client,
-        sample_responses
+        self, webhook_client, sample_responses
     ):
         """Test that correct headers are included in request."""
-        with patch('httpx.AsyncClient') as mock_client_class:
+        with patch("httpx.AsyncClient") as mock_client_class:
             mock_client = MagicMock()
             mock_response = MagicMock()
             mock_response.status_code = 200

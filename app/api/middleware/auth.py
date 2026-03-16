@@ -35,14 +35,13 @@ async def verify_api_key(api_key: Optional[str] = Security(api_key_header)) -> s
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Missing API key. Include X-API-Key header.",
-            headers={"WWW-Authenticate": "ApiKey"}
+            headers={"WWW-Authenticate": "ApiKey"},
         )
 
     if api_key != settings.api_key:
         logger.warning(f"Invalid API key attempt: {api_key[:8]}...")
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Invalid API key"
+            status_code=status.HTTP_403_FORBIDDEN, detail="Invalid API key"
         )
 
     logger.debug("API key validated successfully")

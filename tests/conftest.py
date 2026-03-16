@@ -11,8 +11,6 @@ import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 
 from app.models.database import Base, Group, User, Question, GroupQuestion, Message
-from app.services.facilitator.llm_service import LLMService
-from app.config import settings
 
 
 # Configure pytest-asyncio
@@ -29,9 +27,7 @@ async def db_engine():
     """Create test database engine."""
     # Use in-memory SQLite for tests
     engine = create_async_engine(
-        "sqlite+aiosqlite:///:memory:",
-        echo=False,
-        future=True
+        "sqlite+aiosqlite:///:memory:", echo=False, future=True
     )
 
     async with engine.begin() as conn:
@@ -65,7 +61,7 @@ async def test_group(db_session: AsyncSession) -> Group:
         external_id=123,
         group_name="Test Group",
         created_at=datetime.now(),
-        is_active=True
+        is_active=True,
     )
     db_session.add(group)
     await db_session.flush()
@@ -79,7 +75,7 @@ async def test_user(db_session: AsyncSession) -> User:
         external_user_id="test-user-1",
         first_name="John",
         last_name="Doe",
-        created_at=datetime.now()
+        created_at=datetime.now(),
     )
     db_session.add(user)
     await db_session.flush()
@@ -90,8 +86,7 @@ async def test_user(db_session: AsyncSession) -> User:
 async def test_question(db_session: AsyncSession) -> Question:
     """Create a test question."""
     question = Question(
-        external_id="test-question-1",
-        text="What is your favorite memory?"
+        external_id="test-question-1", text="What is your favorite memory?"
     )
     db_session.add(question)
     await db_session.flush()
@@ -100,9 +95,7 @@ async def test_question(db_session: AsyncSession) -> Question:
 
 @pytest_asyncio.fixture
 async def test_group_question(
-    db_session: AsyncSession,
-    test_group: Group,
-    test_question: Question
+    db_session: AsyncSession, test_group: Group, test_question: Question
 ) -> GroupQuestion:
     """Create a test group-question thread."""
     group_question = GroupQuestion(
@@ -110,7 +103,7 @@ async def test_group_question(
         question_id=test_question.id,
         status="active",
         unlock_order=1,
-        created_at=datetime.now()
+        created_at=datetime.now(),
     )
     db_session.add(group_question)
     await db_session.flush()
@@ -122,7 +115,7 @@ async def test_messages(
     db_session: AsyncSession,
     test_group: Group,
     test_user: User,
-    test_group_question: GroupQuestion
+    test_group_question: GroupQuestion,
 ) -> List[Message]:
     """Create test messages."""
     base_time = datetime.now() - timedelta(hours=1)
@@ -144,7 +137,7 @@ async def test_messages(
             content=content,
             timestamp=base_time + timedelta(minutes=i * 5),
             is_ai=False,
-            created_at=datetime.now()
+            created_at=datetime.now(),
         )
         db_session.add(msg)
         messages.append(msg)
@@ -153,7 +146,7 @@ async def test_messages(
 
     # Refresh to load relationships
     for msg in messages:
-        await db_session.refresh(msg, ['user'])
+        await db_session.refresh(msg, ["user"])
 
     return messages
 
@@ -164,7 +157,7 @@ def mock_llm_verification_response():
     return {
         "needs_facilitation": True,
         "reasoning": "The conversation shows low engagement and participants seeking advice.",
-        "confidence": 0.85
+        "confidence": 0.85,
     }
 
 
@@ -173,7 +166,7 @@ def mock_llm_generation_response():
     """Mock LLM generation response (Stage 3)."""
     return {
         "facilitation_message": "It sounds like everyone is going through similar challenges. How are you all coping today?",
-        "approach": "Open-ended question with emotional validation"
+        "approach": "Open-ended question with emotional validation",
     }
 
 
@@ -183,5 +176,5 @@ def mock_llm_no_facilitation_response():
     return {
         "needs_facilitation": False,
         "reasoning": "The conversation is active and participants are supporting each other effectively.",
-        "confidence": 0.90
+        "confidence": 0.90,
     }

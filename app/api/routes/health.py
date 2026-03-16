@@ -18,7 +18,5 @@ async def health_check() -> HealthCheckResponse:
     No authentication required.
     """
     return HealthCheckResponse(
-        status="healthy",
-        timestamp=datetime.utcnow(),
-        version="1.0.0"
+        status="healthy", timestamp=datetime.utcnow(), version="1.0.0"
     )

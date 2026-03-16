@@ -9,12 +9,17 @@ from typing import Dict, Any, Optional, List
 
 from openai import AsyncOpenAI
 
-from .config import settings
 from .prompts import (
-    STAGE_2_SYSTEM_PROMPT, STAGE_2_USER_PROMPT,
-    STAGE_3_SYSTEM_PROMPT, STAGE_3_USER_PROMPT, STAGE_3_RED_FLAG_FEEDBACK,
-    STAGE_4_SYSTEM_PROMPT, STAGE_4_USER_PROMPT,
+    STAGE_2_SYSTEM_PROMPT,
+    STAGE_2_USER_PROMPT,
+    STAGE_3_SYSTEM_PROMPT,
+    STAGE_3_USER_PROMPT,
+    STAGE_3_RED_FLAG_FEEDBACK,
+    STAGE_4_SYSTEM_PROMPT,
+    STAGE_4_USER_PROMPT,
 )
+
+from app.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +27,7 @@ logger = logging.getLogger(__name__)
 class LLMService:
     """Service for interacting with OpenAI LLM API."""
 
-    def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None):
+    def __init__(self):
         """
         Initialize LLM service.
 
@@ -30,13 +35,19 @@ class LLMService:
             api_key: OpenAI API key (uses settings if not provided)
             model: Model name (uses settings if not provided)
         """
-        self.api_key = api_key or settings.openai_api_key
-        self.model = model or settings.llm_model
+        self.api_key = settings.openai_api_key
+        self.stage_2_model = settings.stage_2_model
+        self.stage_3_model = settings.stage_3_model
+        self.stage_4_model = settings.stage_4_model
         self.client = AsyncOpenAI(api_key=self.api_key)
-        logger.debug(f"LLM service initialized with model: {self.model}")
+        logger.debug(f"LLM service initialized with models: stage2={self.stage_2_model}, stage3={self.stage_3_model}, stage4={self.stage_4_model}")
 
     async def verify_facilitation_needed(
-        self, topic: str, conversation_text: str, num_messages: int, current_time: str = ""
+        self,
+        topic: str,
+        conversation_text: str,
+        num_messages: int,
+        current_time: str = "",
     ) -> Dict[str, Any]:
         """
         Stage 2: Use LLM to verify if facilitation is needed.
@@ -64,7 +75,7 @@ class LLMService:
 
         try:
             response = await self.client.chat.completions.create(
-                model="gpt-5-mini",
+                model=self.stage_2_model,
                 messages=[
                     {"role": "system", "content": STAGE_2_SYSTEM_PROMPT},
                     {"role": "user", "content": user_prompt},
@@ -121,13 +132,14 @@ class LLMService:
 
         if red_flag_feedback:
             user_prompt += STAGE_3_RED_FLAG_FEEDBACK.format(
-                red_flags=", ".join(red_flag_feedback.get("red_flags_detected", [])) or "unspecified",
+                red_flags=", ".join(red_flag_feedback.get("red_flags_detected", []))
+                or "unspecified",
                 reasoning=red_flag_feedback.get("reasoning", ""),
             )
 
         try:
             response = await self.client.chat.completions.create(
-                model=self.model,
+                model=self.stage_3_model,
                 messages=[
                     {"role": "system", "content": STAGE_3_SYSTEM_PROMPT},
                     {"role": "user", "content": user_prompt},
@@ -176,7 +188,7 @@ class LLMService:
 
         try:
             response = await self.client.chat.completions.create(
-                model="gpt-5-mini",
+                model=self.stage_4_model,
                 messages=[
                     {"role": "system", "content": STAGE_4_SYSTEM_PROMPT},
                     {"role": "user", "content": user_prompt},

@@ -5,7 +5,6 @@ Loads configuration from environment variables and .env file.
 
 import logging
 import json
-from pathlib import Path
 from typing import Literal
 
 from pydantic import Field
@@ -41,8 +40,7 @@ class Settings(BaseSettings):
     )
 
     limit_messages: int = Field(
-        default=10,
-        description="Number of messages retrieved from threads by default"
+        default=10, description="Number of messages retrieved from threads by default"
     )
 
     # OpenAI
@@ -59,8 +57,15 @@ class Settings(BaseSettings):
         default="models/temporal_classifier.pkl",
         description="Path to pre-trained Random Forest model",
     )
-    llm_model: str = Field(
-        default="gpt-4o-mini", description="OpenAI model to use for LLM stages"
+
+    stage_2_model: str = Field(
+        default="gpt-5-mini", description="OpenAI model to use for Stage-2"
+    )
+    stage_3_model: str = Field(
+        default="gpt-4.1", description="OpenAI model to use for Stage-3"
+    )
+    stage_4_model: str = Field(
+        default="gpt-5-mini", description="OpenAI model to use for Stage-4"
     )
 
     model_config = SettingsConfigDict(

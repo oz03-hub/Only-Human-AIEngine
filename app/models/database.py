@@ -9,7 +9,6 @@ from typing import List, Optional, AsyncGenerator
 
 from sqlalchemy import (
     Boolean,
-    Column,
     DateTime,
     Enum,
     ForeignKey,
@@ -19,7 +18,6 @@ from sqlalchemy import (
     Text,
     JSON,
     UniqueConstraint,
-    create_engine,
 )
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase, relationship, Mapped, mapped_column
@@ -262,6 +260,7 @@ class FacilitationLog(Base):
     stage1_result: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     stage2_result: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     stage3_result: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    stage4_result: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
 
     # Final decision
     final_decision: Mapped[FacilitationDecision] = mapped_column(
@@ -273,9 +272,7 @@ class FacilitationLog(Base):
     message_sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
     # Relationships
-    group: Mapped["Group"] = relationship(
-        "Group", back_populates="facilitation_logs"
-    )
+    group: Mapped["Group"] = relationship("Group", back_populates="facilitation_logs")
     group_question: Mapped["GroupQuestion"] = relationship("GroupQuestion")
 
     def __repr__(self) -> str:

@@ -6,6 +6,7 @@ Extracts time-based features from conversation messages.
 from datetime import datetime, timedelta
 from typing import List, Dict, Any
 
+
 class TemporalFeatureExtractor:
     """Extract temporal features from conversation data for facilitation decision."""
 
@@ -23,23 +24,27 @@ class TemporalFeatureExtractor:
         """Extract datetime objects from messages."""
         timestamps = []
         for msg in self.messages:
-            if hasattr(msg, 'timestamp'):
+            if hasattr(msg, "timestamp"):
                 # Database Message object
                 timestamps.append(msg.timestamp)
-            elif isinstance(msg.get('timestamp'), datetime):
+            elif isinstance(msg.get("timestamp"), datetime):
                 # Dict with datetime
-                timestamps.append(msg['timestamp'])
+                timestamps.append(msg["timestamp"])
             else:
                 # Dict with string time (legacy format from pilot)
-                time_str = msg.get('time', '00:00')
+                time_str = msg.get("time", "00:00")
                 try:
-                    time_obj = datetime.strptime(time_str, '%H:%M')
+                    time_obj = datetime.strptime(time_str, "%H:%M")
 
                     if timestamps:
                         # Use previous timestamp's date as base
                         prev_ts = timestamps[-1]
-                        base_date = prev_ts.replace(hour=0, minute=0, second=0, microsecond=0)
-                        timestamp = base_date.replace(hour=time_obj.hour, minute=time_obj.minute)
+                        base_date = prev_ts.replace(
+                            hour=0, minute=0, second=0, microsecond=0
+                        )
+                        timestamp = base_date.replace(
+                            hour=time_obj.hour, minute=time_obj.minute
+                        )
 
                         # Handle day rollover: if new time is earlier than previous message
                         if timestamp < prev_ts:
@@ -51,7 +56,9 @@ class TemporalFeatureExtractor:
                     timestamps.append(timestamp)
                 except ValueError:
                     # If parsing fails, use previous timestamp or base
-                    timestamps.append(timestamps[-1] if timestamps else datetime(2024, 1, 1))
+                    timestamps.append(
+                        timestamps[-1] if timestamps else datetime(2024, 1, 1)
+                    )
 
         return timestamps
 
@@ -106,28 +113,28 @@ class TemporalFeatureExtractor:
             return 0.0
 
         # Get last n timestamps (or all if less than n)
-        recent_timestamps = self.timestamps[-min(n, len(self.timestamps)):]
+        recent_timestamps = self.timestamps[-min(n, len(self.timestamps)) :]
 
         if len(recent_timestamps) < 2:
             return 0.0
 
         gaps = []
         for i in range(1, len(recent_timestamps)):
-            gap = (recent_timestamps[i] - recent_timestamps[i-1]).total_seconds() / 60
+            gap = (recent_timestamps[i] - recent_timestamps[i - 1]).total_seconds() / 60
             gaps.append(gap)
 
         return sum(gaps) / len(gaps) if gaps else 0.0
 
     def get_unique_participants_last_n_messages(self, n: int) -> int:
         """Count unique participants in last N messages."""
-        recent_messages = self.messages[-min(n, len(self.messages)):]
+        recent_messages = self.messages[-min(n, len(self.messages)) :]
         unique_senders = set()
 
         for msg in recent_messages:
-            if hasattr(msg, 'sender_name'):
+            if hasattr(msg, "sender_name"):
                 unique_senders.add(msg.sender_name)
             else:
-                unique_senders.add(msg.get('sender_name', msg.get('sender', 'Unknown')))
+                unique_senders.add(msg.get("sender_name", msg.get("sender", "Unknown")))
 
         return len(unique_senders)
 
@@ -144,8 +151,10 @@ class TemporalFeatureExtractor:
         if self.current_index == 0:
             return 0.0
 
-        gap = (self.timestamps[self.current_index] -
-               self.timestamps[self.current_index - 1]).total_seconds() / 60
+        gap = (
+            self.timestamps[self.current_index]
+            - self.timestamps[self.current_index - 1]
+        ).total_seconds() / 60
         return gap
 
     def extract_all_features(self) -> Dict[str, Any]:
@@ -156,11 +165,11 @@ class TemporalFeatureExtractor:
             Dict of temporal features matching the Random Forest model's expected features
         """
         return {
-            'messages_last_30min': self.get_messages_in_last_n_minutes(30),
-            'messages_last_hour': self.get_messages_in_last_n_hours(1),
-            'messages_last_3hours': self.get_messages_in_last_n_hours(3),
-            'avg_gap_last_5_messages_min': self.get_average_gap_last_n_messages(5),
-            'time_since_last_message_min': self.get_time_since_last_message_minutes(),
+            "messages_last_30min": self.get_messages_in_last_n_minutes(30),
+            "messages_last_hour": self.get_messages_in_last_n_hours(1),
+            "messages_last_3hours": self.get_messages_in_last_n_hours(3),
+            "avg_gap_last_5_messages_min": self.get_average_gap_last_n_messages(5),
+            "time_since_last_message_min": self.get_time_since_last_message_minutes(),
             # Commented out features that aren't used by the model
             # 'messages_today': self.get_messages_today(),
             # 'avg_gap_last_10_messages_min': self.get_average_gap_last_n_messages(10),

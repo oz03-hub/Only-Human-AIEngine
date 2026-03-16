@@ -122,3 +122,4 @@ Database file: `data/aiengine.db` (SQLite for development)
 - LLM stages use structured JSON responses with fallback handling
 - API key authentication required for all endpoints except `/health`
 - CORS configured for development (all origins) and production (Only-Human domains)
+- Progress is logged in `progress.md`

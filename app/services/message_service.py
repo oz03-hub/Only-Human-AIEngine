@@ -23,9 +23,6 @@ from app.models.database import (
 )
 from app.models.schemas import (
     WebhookIncomingRequest,
-    WebhookIncomingGroup,
-    WebhookIncomingMessage,
-    WebhookIncomingQuestion,
 )
 
 logger = logging.getLogger(__name__)
@@ -554,14 +551,7 @@ class MessageService:
         messages_by_group_by_question: Dict[int, Dict[str, List[Message]]] = {}
         payload = webhook_content.payload
 
-        # Sync group active status from groups_metadata
-        for meta in payload.groups_metadata:
-            is_active = meta.status == "active"
-            await self.update_group_active_status(
-                external_id=meta.group_id, new_status=is_active
-            )
-
-        # Process full group data
+        # Process full group data first (creates groups if they don't exist yet)
         for group_data in payload.groups:
             group_id: int = group_data.group_id
             messages_by_group_by_question[group_id] = {}
@@ -623,12 +613,23 @@ class MessageService:
                         is_ai=message_data.is_ai,
                     )
 
-                    messages_by_group_by_question[group_id][question_data.id].append(message)
+                    messages_by_group_by_question[group_id][question_data.id].append(
+                        message
+                    )
+
+        # Sync group active status from groups_metadata (after groups exist in DB)
+        for meta in payload.groups_metadata:
+            is_active = meta.status == "active"
+            await self.update_group_active_status(
+                external_id=meta.group_id, new_status=is_active
+            )
 
         await self.session.commit()
         total_threads = sum(len(qs) for qs in messages_by_group_by_question.values())
         total_messages = sum(
-            len(msgs) for qs in messages_by_group_by_question.values() for msgs in qs.values()
+            len(msgs)
+            for qs in messages_by_group_by_question.values()
+            for msgs in qs.values()
         )
         logger.info(
             f"Stored webhook content: {len(payload.groups)} groups, "
@@ -656,7 +657,7 @@ class MessageService:
             .join(Question, GroupQuestion.question_id == Question.id)
             .where(
                 and_(
-                    Group.is_active == True,
+                    Group.is_active,
                     GroupQuestion.status == "active",
                 )
             )
@@ -708,6 +709,7 @@ class MessageService:
         stage1_result: Optional[Dict[str, Any]],
         stage2_result: Optional[Dict[str, Any]],
         stage3_result: Optional[Dict[str, Any]],
+        stage4_result: Optional[Dict[str, Any]],
         final_decision: str,
         facilitation_message: Optional[str] = None,
         message_sent_at: Optional[datetime] = None,
@@ -721,6 +723,7 @@ class MessageService:
             stage1_result: Stage 1 result dict
             stage2_result: Stage 2 result dict
             stage3_result: Stage 3 result dict
+            stage4_result: Stage 4 red flag verification result dict
             final_decision: Final decision (NO_FACILITATION, NO_FACILITATION_AFTER_VERIFY, FACILITATE)
             facilitation_message: Generated facilitation message
             message_sent_at: Timestamp when message was sent
@@ -735,6 +738,7 @@ class MessageService:
             stage1_result=stage1_result,
             stage2_result=stage2_result,
             stage3_result=stage3_result,
+            stage4_result=stage4_result,
             final_decision=final_decision,
             facilitation_message=facilitation_message,
             message_sent_at=message_sent_at,

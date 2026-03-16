@@ -9,13 +9,14 @@ from typing import List, Dict, Any, Optional, Callable, TypeVar
 import joblib
 import numpy as np
 
-from .config import settings
 from .feature_extractor import TemporalFeatureExtractor
 from .llm_service import LLMService
 
+from app.config import settings
+
 logger = logging.getLogger(__name__)
 
-T = TypeVar('T')
+T = TypeVar("T")
 
 
 async def retry_with_exponential_backoff(
@@ -25,7 +26,7 @@ async def retry_with_exponential_backoff(
     max_delay: float = 10.0,
     exponential_base: float = 2.0,
     *args,
-    **kwargs
+    **kwargs,
 ) -> T:
     """
     Retry an async function with exponential backoff.
@@ -56,12 +57,12 @@ async def retry_with_exponential_backoff(
             if attempt == max_retries:
                 logger.error(
                     f"Failed after {max_retries} retries. Last error: {e}",
-                    exc_info=True
+                    exc_info=True,
                 )
                 raise
 
             # Calculate delay with exponential backoff
-            delay = min(initial_delay * (exponential_base ** attempt), max_delay)
+            delay = min(initial_delay * (exponential_base**attempt), max_delay)
 
             logger.warning(
                 f"Attempt {attempt + 1}/{max_retries + 1} failed: {e}. "
@@ -82,7 +83,7 @@ class FacilitationDecisionPipeline:
         self,
         llm_service: Optional[LLMService] = None,
         model_path: Optional[str] = None,
-        max_retries: int = 3
+        max_retries: int = 3,
     ):
         """
         Initialize the facilitation pipeline.
@@ -99,9 +100,11 @@ class FacilitationDecisionPipeline:
         # Load the trained Random Forest model
         logger.info(f"Loading trained model from {self.model_path}...")
         model_data = joblib.load(self.model_path)
-        self.rf_model = model_data['model']
-        self.feature_names = model_data['feature_names']
-        logger.info(f"Model loaded successfully with {len(self.feature_names)} features")
+        self.rf_model = model_data["model"]
+        self.feature_names = model_data["feature_names"]
+        logger.info(
+            f"Model loaded successfully with {len(self.feature_names)} features"
+        )
 
     def _extract_features_vector(self, features: Dict[str, Any]) -> np.ndarray:
         """
@@ -114,17 +117,16 @@ class FacilitationDecisionPipeline:
             Feature vector as numpy array
         """
         feature_vector = [
-            features['messages_last_30min'],
-            features['messages_last_hour'],
-            features['messages_last_3hours'],
-            features['avg_gap_last_5_messages_min'],
-            features['time_since_last_message_min'],
+            features["messages_last_30min"],
+            features["messages_last_hour"],
+            features["messages_last_3hours"],
+            features["avg_gap_last_5_messages_min"],
+            features["time_since_last_message_min"],
         ]
         return np.array([feature_vector])
 
     async def stage1_temporal_classification(
-        self,
-        messages: List[Dict[str, Any]]
+        self, messages: List[Dict[str, Any]]
     ) -> Dict[str, Any]:
         """
         Stage 1: Extract temporal features and use Random Forest to classify.
@@ -135,15 +137,15 @@ class FacilitationDecisionPipeline:
         Returns:
             Dict with 'should_facilitate' (bool), 'probability', 'features'
         """
-        logger.info("="*60)
+        logger.info("=" * 60)
         logger.info("STAGE 1: Temporal Feature Classification")
-        logger.info("="*60)
+        logger.info("=" * 60)
 
         # Extract features from the conversation
         extractor = TemporalFeatureExtractor(messages)
         features = extractor.extract_all_features()
 
-        logger.info(f"Extracted features:")
+        logger.info("Extracted features:")
         for key, value in features.items():
             if isinstance(value, float):
                 logger.info(f"  {key}: {value:.2f}")
@@ -158,14 +160,16 @@ class FacilitationDecisionPipeline:
         probabilities = self.rf_model.predict_proba(X)[0]
         facilitation_probability = probabilities[1]  # Probability of class 1
 
-        logger.info(f"Random Forest Decision:")
-        logger.info(f"  Prediction: {'FACILITATE' if prediction == 1 else 'NO FACILITATION'}")
+        logger.info("Random Forest Decision:")
+        logger.info(
+            f"  Prediction: {'FACILITATE' if prediction == 1 else 'NO FACILITATION'}"
+        )
         logger.info(f"  Confidence: {facilitation_probability:.2%}")
 
         return {
-            'should_facilitate': bool(prediction == 1),
-            'probability': float(facilitation_probability),
-            'features': features
+            "should_facilitate": bool(prediction == 1),
+            "probability": float(facilitation_probability),
+            "features": features,
         }
 
     async def stage2_llm_verification(
@@ -187,9 +191,9 @@ class FacilitationDecisionPipeline:
         Returns:
             Dict with 'needs_facilitation' (bool), 'reasoning', 'confidence'
         """
-        logger.info("="*60)
+        logger.info("=" * 60)
         logger.info("STAGE 2: LLM Zero-Shot Verification")
-        logger.info("="*60)
+        logger.info("=" * 60)
 
         # Get last N messages
         recent_messages = messages[-last_n:] if len(messages) > last_n else messages
@@ -207,7 +211,7 @@ class FacilitationDecisionPipeline:
             current_time=current_time,
         )
 
-        logger.info(f"LLM Verification Result:")
+        logger.info("LLM Verification Result:")
         logger.info(f"  Needs Facilitation: {result['needs_facilitation']}")
         logger.info(f"  Reasoning: {result['reasoning']}")
 
@@ -237,9 +241,9 @@ class FacilitationDecisionPipeline:
         Returns:
             Dict with 'facilitation_message' and 'approach'
         """
-        logger.info("="*60)
+        logger.info("=" * 60)
         logger.info("STAGE 3: Generate Facilitation Response")
-        logger.info("="*60)
+        logger.info("=" * 60)
 
         # Get last N messages
         recent_messages = messages[-last_n:] if len(messages) > last_n else messages
@@ -259,7 +263,7 @@ class FacilitationDecisionPipeline:
             red_flag_feedback=red_flag_feedback,
         )
 
-        logger.info(f"Generated Facilitation:")
+        logger.info("Generated Facilitation:")
         logger.info(f"  Message: {result['facilitation_message']}")
 
         return result
@@ -269,7 +273,7 @@ class FacilitationDecisionPipeline:
         topic: str,
         messages: List[Dict[str, Any]],
         facilitation_message: str,
-        last_n: int = 15
+        last_n: int = 15,
     ) -> Dict[str, Any]:
         """
         Stage 4: Verify that facilitation message doesn't contain red flags.
@@ -283,9 +287,9 @@ class FacilitationDecisionPipeline:
         Returns:
             Dict with 'has_red_flags', 'red_flags_detected', 'severity', 'reasoning', 'recommendation'
         """
-        logger.info("="*60)
+        logger.info("=" * 60)
         logger.info("STAGE 4: Red Flag Verification")
-        logger.info("="*60)
+        logger.info("=" * 60)
 
         # Get last N messages
         recent_messages = messages[-last_n:] if len(messages) > last_n else messages
@@ -299,15 +303,17 @@ class FacilitationDecisionPipeline:
             max_retries=self.max_retries,
             topic=topic,
             conversation_text=conversation_text,
-            facilitation_message=facilitation_message
+            facilitation_message=facilitation_message,
         )
 
-        logger.info(f"Red Flag Verification Result:")
+        logger.info("Red Flag Verification Result:")
         logger.info(f"  Has Red Flags: {result['has_red_flags']}")
         logger.info(f"  Severity: {result['severity']}")
         logger.info(f"  Recommendation: {result['recommendation']}")
-        if result['has_red_flags']:
-            logger.info(f"  Red Flags Detected: {', '.join(result['red_flags_detected'])}")
+        if result["has_red_flags"]:
+            logger.info(
+                f"  Red Flags Detected: {', '.join(result['red_flags_detected'])}"
+            )
             logger.info(f"  Reasoning: {result['reasoning']}")
 
         return result
@@ -318,6 +324,7 @@ class FacilitationDecisionPipeline:
         messages: List[Dict[str, Any]],
         max_regeneration_attempts: int = 2,
         current_time: str = "",
+        bypass: bool = False,
     ) -> Dict[str, Any]:
         """
         Run the complete multi-stage facilitation pipeline.
@@ -326,50 +333,82 @@ class FacilitationDecisionPipeline:
             topic: String group question
             messages: List of Message objects
             max_regeneration_attempts: Maximum number of times to regenerate if red flags detected
+            current_time: Current time string for LLM context
+            bypass: If True, all 4 stages still run but negative decisions and stage
+                    exceptions are ignored — a facilitation message is always produced.
+                    Intended for testing only, not production use.
 
         Returns:
             Dict with complete pipeline results and final decision
         """
-        logger.info("="*70)
+        logger.info("=" * 70)
         logger.info("FACILITATION DECISION PIPELINE (4-Stage)")
-        logger.info("="*70)
+        if bypass:
+            logger.info("*** BYPASS MODE ENABLED — all stages forced ***")
+        logger.info("=" * 70)
         logger.info(f"Analyzing conversation with {len(messages)} messages...")
 
         pipeline_result = {
-            'stage1': None,
-            'stage2': None,
-            'stage3': None,
-            'stage4': None,
-            'final_decision': 'NO_FACILITATION',
-            'facilitation_message': None
+            "stage1": None,
+            "stage2": None,
+            "stage3": None,
+            "stage4": None,
+            "final_decision": "NO_FACILITATION",
+            "facilitation_message": None,
         }
 
         # STAGE 1: Temporal Classification
-        stage1_result = await self.stage1_temporal_classification(messages)
-        pipeline_result['stage1'] = stage1_result
+        try:
+            stage1_result = await self.stage1_temporal_classification(messages)
+        except Exception as e:
+            if bypass:
+                logger.warning(f"Stage 1 failed in bypass mode: {e} — defaulting to facilitate")
+                stage1_result = {"should_facilitate": True, "probability": 1.0, "features": {}}
+            else:
+                raise
+        pipeline_result["stage1"] = stage1_result
 
-        if not stage1_result['should_facilitate']:
-            logger.info("="*70)
-            logger.info("FINAL DECISION: NO FACILITATION NEEDED")
-            logger.info("="*70)
-            logger.info("Random Forest determined facilitation is not needed.")
-            return pipeline_result
+        if not stage1_result["should_facilitate"]:
+            if not bypass:
+                logger.info("=" * 70)
+                logger.info("FINAL DECISION: NO FACILITATION NEEDED")
+                logger.info("=" * 70)
+                logger.info("Random Forest determined facilitation is not needed.")
+                return pipeline_result
+            else:
+                logger.info("BYPASS: Stage 1 said no facilitation — continuing anyway")
 
         # STAGE 2: LLM Verification
-        stage2_result = await self.stage2_llm_verification(topic, messages, current_time=current_time)
-        pipeline_result['stage2'] = stage2_result
+        try:
+            stage2_result = await self.stage2_llm_verification(
+                topic, messages, current_time=current_time
+            )
+        except Exception as e:
+            if bypass:
+                logger.warning(f"Stage 2 failed in bypass mode: {e} — defaulting to needs facilitation")
+                stage2_result = {
+                    "needs_facilitation": True,
+                    "reasoning": "Bypassed due to stage 2 error",
+                    "confidence": 1.0,
+                }
+            else:
+                raise
+        pipeline_result["stage2"] = stage2_result
 
-        if not stage2_result['needs_facilitation']:
-            logger.info("="*70)
-            logger.info("FINAL DECISION: NO FACILITATION NEEDED")
-            logger.info("="*70)
-            logger.info("LLM verification determined facilitation is not needed.")
-            logger.info(f"Reasoning: {stage2_result['reasoning']}")
-            pipeline_result['final_decision'] = 'NO_FACILITATION_AFTER_VERIFY'
-            return pipeline_result
+        if not stage2_result["needs_facilitation"]:
+            if not bypass:
+                logger.info("=" * 70)
+                logger.info("FINAL DECISION: NO FACILITATION NEEDED")
+                logger.info("=" * 70)
+                logger.info("LLM verification determined facilitation is not needed.")
+                logger.info(f"Reasoning: {stage2_result['reasoning']}")
+                pipeline_result["final_decision"] = "NO_FACILITATION_AFTER_VERIFY"
+                return pipeline_result
+            else:
+                logger.info("BYPASS: Stage 2 said no facilitation — continuing anyway")
 
         # Extract intervention focus from stage 2 (if available)
-        intervention_focus = stage2_result.get('intervention_focus', 'general')
+        intervention_focus = stage2_result.get("intervention_focus", "general")
 
         # STAGE 3: Generate Facilitation (with potential regeneration)
         regeneration_attempt = 0
@@ -379,47 +418,83 @@ class FacilitationDecisionPipeline:
 
         while regeneration_attempt <= max_regeneration_attempts:
             # Generate facilitation message (include red flag feedback on retries)
-            stage3_result = await self.stage3_generate_facilitation(
-                topic,
-                messages,
-                stage2_result['reasoning'],
-                intervention_focus,
-                current_time=current_time,
-                red_flag_feedback=red_flag_feedback,
-            )
+            try:
+                stage3_result = await self.stage3_generate_facilitation(
+                    topic,
+                    messages,
+                    stage2_result["reasoning"],
+                    intervention_focus,
+                    current_time=current_time,
+                    red_flag_feedback=red_flag_feedback,
+                )
+            except Exception as e:
+                if bypass:
+                    logger.warning(f"Stage 3 failed in bypass mode: {e} — using fallback message")
+                    stage3_result = {
+                        "facilitation_message": "Thank you all for sharing. How is everyone feeling about the discussion so far?",
+                        "approach": "Bypass fallback",
+                    }
+                    stage4_result = {
+                        "has_red_flags": False,
+                        "red_flags_detected": [],
+                        "severity": "none",
+                        "reasoning": "Bypassed",
+                        "recommendation": "approve",
+                    }
+                    break
+                else:
+                    raise
 
             # STAGE 4: Verify Red Flags
-            stage4_result = await self.stage4_verify_red_flags(
-                topic,
-                messages,
-                stage3_result['facilitation_message']
-            )
+            try:
+                stage4_result = await self.stage4_verify_red_flags(
+                    topic, messages, stage3_result["facilitation_message"]
+                )
+            except Exception as e:
+                if bypass:
+                    logger.warning(f"Stage 4 failed in bypass mode: {e} — approving message")
+                    stage4_result = {
+                        "has_red_flags": False,
+                        "red_flags_detected": [],
+                        "severity": "none",
+                        "reasoning": "Bypassed",
+                        "recommendation": "approve",
+                    }
+                    break
+                else:
+                    raise
 
             # Check recommendation
-            recommendation = stage4_result.get('recommendation', 'approve')
+            recommendation = stage4_result.get("recommendation", "approve")
 
-            if recommendation == 'approve':
+            if recommendation == "approve":
                 logger.info("Stage 4: Message approved - no red flags detected")
                 break
-            elif recommendation == 'revise' and regeneration_attempt < max_regeneration_attempts:
+            elif (
+                recommendation == "revise"
+                and regeneration_attempt < max_regeneration_attempts
+            ):
                 logger.warning(
                     f"Stage 4: Message needs revision (attempt {regeneration_attempt + 1}/{max_regeneration_attempts}). "
                     f"Red flags: {', '.join(stage4_result.get('red_flags_detected', []))}"
                 )
                 red_flag_feedback = {
-                    'red_flags_detected': stage4_result.get('red_flags_detected', []),
-                    'reasoning': stage4_result.get('reasoning', ''),
+                    "red_flags_detected": stage4_result.get("red_flags_detected", []),
+                    "reasoning": stage4_result.get("reasoning", ""),
                 }
                 regeneration_attempt += 1
                 continue
-            elif recommendation == 'reject' and regeneration_attempt < max_regeneration_attempts:
+            elif (
+                recommendation == "reject"
+                and regeneration_attempt < max_regeneration_attempts
+            ):
                 logger.error(
                     f"Stage 4: Message rejected (attempt {regeneration_attempt + 1}/{max_regeneration_attempts}). "
                     f"Red flags: {', '.join(stage4_result.get('red_flags_detected', []))}"
                 )
                 red_flag_feedback = {
-                    'red_flags_detected': stage4_result.get('red_flags_detected', []),
-                    'reasoning': stage4_result.get('reasoning', ''),
+                    "red_flags_detected": stage4_result.get("red_flags_detected", []),
+                    "reasoning": stage4_result.get("reasoning", ""),
                 }
                 regeneration_attempt += 1
                 continue
@@ -431,19 +506,23 @@ class FacilitationDecisionPipeline:
                 )
                 break
 
-        pipeline_result['stage3'] = stage3_result
-        pipeline_result['stage4'] = stage4_result
-        pipeline_result['final_decision'] = 'FACILITATE'
-        pipeline_result['facilitation_message'] = stage3_result['facilitation_message']
+        pipeline_result["stage3"] = stage3_result
+        pipeline_result["stage4"] = stage4_result
+        pipeline_result["final_decision"] = "FACILITATE"
+        pipeline_result["facilitation_message"] = stage3_result["facilitation_message"]
 
-        logger.info("="*70)
+        logger.info("=" * 70)
         logger.info("FINAL DECISION: FACILITATION APPROVED")
-        logger.info("="*70)
-        logger.info(f"Facilitation Message:")
+        logger.info("=" * 70)
+        logger.info("Facilitation Message:")
         logger.info(f"  {stage3_result['facilitation_message']}")
-        if stage4_result.get('has_red_flags'):
-            logger.warning(f"Warning: Red flags detected but proceeding after {regeneration_attempt} regeneration(s)")
-            logger.warning(f"  Red Flags: {', '.join(stage4_result.get('red_flags_detected', []))}")
-        logger.info("="*70)
+        if stage4_result.get("has_red_flags"):
+            logger.warning(
+                f"Warning: Red flags detected but proceeding after {regeneration_attempt} regeneration(s)"
+            )
+            logger.warning(
+                f"  Red Flags: {', '.join(stage4_result.get('red_flags_detected', []))}"
+            )
+        logger.info("=" * 70)
 
         return pipeline_result

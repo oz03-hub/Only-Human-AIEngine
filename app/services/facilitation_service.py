@@ -3,13 +3,13 @@ Facilitation service for running the pipeline on group-question threads.
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Tuple, Dict, Any, Optional
 
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.database import Group, Question, GroupQuestion
+from app.models.database import GroupQuestion
 from app.services.facilitator.pipeline import FacilitationDecisionPipeline
 from app.services.message_service import MessageService
 from app.config import settings
@@ -42,7 +42,9 @@ class FacilitationService:
 
         for group_external_id, question_external_id in group_question_id_pairs:
             try:
-                response = await self._process_thread(group_external_id, question_external_id)
+                response = await self._process_thread(
+                    group_external_id, question_external_id
+                )
                 if response:
                     facilitation_responses.append(response)
             except Exception as e:
@@ -67,12 +69,18 @@ class FacilitationService:
         """
         group = await self.message_service.get_group_by_external_id(group_external_id)
         if not group:
-            logger.warning(f"Group {group_external_id} not found, skipping facilitation")
+            logger.warning(
+                f"Group {group_external_id} not found, skipping facilitation"
+            )
             return None
 
-        question = await self.message_service.get_question_by_external_id(question_external_id)
+        question = await self.message_service.get_question_by_external_id(
+            question_external_id
+        )
         if not question:
-            logger.warning(f"Question {question_external_id} not found, skipping facilitation")
+            logger.warning(
+                f"Question {question_external_id} not found, skipping facilitation"
+            )
             return None
 
         result = await self.session.execute(
@@ -94,6 +102,7 @@ class FacilitationService:
         messages = await self.message_service.get_conversation_history(
             group=group,
             group_question=group_question,
+            limit=settings.limit_messages,
         )
 
         if len(messages) < settings.min_messages:
@@ -108,13 +117,16 @@ class FacilitationService:
             f"question {question_external_id} ({len(messages)} messages)"
         )
 
+        current_time = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S+00:00")
+
         pipeline_result = await self.pipeline.run_pipeline(
             topic=question.text,
             messages=messages,
+            current_time=current_time,
         )
 
         sent_at = (
-            datetime.now()
+            datetime.now(timezone.utc)
             if pipeline_result["final_decision"] == "FACILITATE"
             else None
         )
@@ -125,6 +137,7 @@ class FacilitationService:
             stage1_result=pipeline_result.get("stage1"),
             stage2_result=pipeline_result.get("stage2"),
             stage3_result=pipeline_result.get("stage3"),
+            stage4_result=pipeline_result.get("stage4"),
             final_decision=pipeline_result["final_decision"],
             facilitation_message=pipeline_result.get("facilitation_message"),
             message_sent_at=sent_at,

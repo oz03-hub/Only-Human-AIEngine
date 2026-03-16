@@ -5,90 +5,20 @@ Provides endpoints for manual facilitation checks and viewing logs.
 
 import logging
 from datetime import datetime
-from typing import Optional, List
+from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.database import get_db
-from app.models.schemas import (
-    FacilitationCheckRequest,
-    FacilitationCheckResponse,
-    FacilitationLogResponse
-)
+from app.models.schemas import FacilitationLogResponse
 from app.services.message_service import MessageService
 from app.services.facilitation_service import FacilitationService
 from app.api.middleware.auth import verify_api_key
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(
-    prefix="/api/v1/facilitation",
-    tags=["facilitation"]
-)
-
-
-@router.post(
-    "/check",
-    response_model=FacilitationCheckResponse,
-    status_code=status.HTTP_200_OK,
-    summary="Manually trigger facilitation check",
-    description="Runs the facilitation pipeline for a specific chatroom and returns the decision"
-)
-async def trigger_facilitation_check(
-    request: FacilitationCheckRequest,
-    session: AsyncSession = Depends(get_db),
-    _api_key: str = Depends(verify_api_key)
-):
-    """
-    Manually trigger a facilitation check for a specific chatroom.
-
-    This endpoint:
-    1. Retrieves the chatroom and its conversation history
-    2. Runs the 3-stage facilitation pipeline
-    3. Logs the decision
-    4. Returns the facilitation decision and message (if applicable)
-
-    Args:
-        request: Request with group_id to check
-        session: Database session
-        _api_key: Validated API key
-
-    Returns:
-        Facilitation decision with message if facilitation is needed
-    """
-    logger.info(f"Manual facilitation check requested for group: {request.group_id}")
-
-    try:
-        # Get chatroom
-        message_service = MessageService(session)
-        chatroom = await message_service.get_chatroom_by_external_id(request.group_id)
-
-        if not chatroom:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Chatroom not found: {request.group_id}"
-            )
-
-        # Run facilitation check
-        facilitation_service = FacilitationService(session)
-        result = await facilitation_service.check_and_facilitate(chatroom)
-
-        return FacilitationCheckResponse(
-            group_id=request.group_id,
-            decision=result['decision'],
-            message=result['message'],
-            log_id=result['log_id'] or 0
-        )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error during manual facilitation check: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error during facilitation check: {str(e)}"
-        )
+router = APIRouter(prefix="/api/v1/facilitation", tags=["facilitation"])
 
 
 @router.get(
@@ -96,13 +26,15 @@ async def trigger_facilitation_check(
     response_model=List[FacilitationLogResponse],
     status_code=status.HTTP_200_OK,
     summary="Get facilitation logs",
-    description="Retrieve facilitation decision logs for a specific chatroom"
+    description="Retrieve facilitation decision logs for a specific chatroom",
 )
 async def get_facilitation_logs(
     group_id: str = Query(..., description="Chatroom UUID to get logs for"),
-    limit: int = Query(10, ge=1, le=100, description="Maximum number of logs to return"),
+    limit: int = Query(
+        10, ge=1, le=100, description="Maximum number of logs to return"
+    ),
     session: AsyncSession = Depends(get_db),
-    _api_key: str = Depends(verify_api_key)
+    _api_key: str = Depends(verify_api_key),
 ):
     """
     Get facilitation logs for a specific chatroom.
@@ -126,26 +58,31 @@ async def get_facilitation_logs(
         if not chatroom:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Chatroom not found: {group_id}"
+                detail=f"Chatroom not found: {group_id}",
             )
 
         # Get logs
         facilitation_service = FacilitationService(session)
-        logs = await facilitation_service.get_chatroom_facilitation_logs(chatroom, limit=limit)
+        logs = await facilitation_service.get_chatroom_facilitation_logs(
+            chatroom, limit=limit
+        )
 
         # Convert to response models
         from app.models.database import FacilitationDecision
+
         return [
             FacilitationLogResponse(
-                id=log['id'],
+                id=log["id"],
                 chatroom_id=chatroom.id,
-                triggered_at=datetime.fromisoformat(log['triggered_at']),
-                final_decision=FacilitationDecision(log['final_decision']),
-                facilitation_message=log['facilitation_message'],
-                message_sent_at=datetime.fromisoformat(log['message_sent_at']) if log['message_sent_at'] else None,
-                stage1_result=log['stage1_result'],
-                stage2_result=log['stage2_result'],
-                stage3_result=log['stage3_result']
+                triggered_at=datetime.fromisoformat(log["triggered_at"]),
+                final_decision=FacilitationDecision(log["final_decision"]),
+                facilitation_message=log["facilitation_message"],
+                message_sent_at=datetime.fromisoformat(log["message_sent_at"])
+                if log["message_sent_at"]
+                else None,
+                stage1_result=log["stage1_result"],
+                stage2_result=log["stage2_result"],
+                stage3_result=log["stage3_result"],
             )
             for log in logs
         ]
@@ -156,5 +93,5 @@ async def get_facilitation_logs(
         logger.error(f"Error fetching facilitation logs: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error fetching logs: {str(e)}"
+            detail=f"Error fetching logs: {str(e)}",
         )
