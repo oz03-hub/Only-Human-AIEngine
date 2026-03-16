@@ -11,7 +11,7 @@ import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 
 from app.models.database import Base, Group, User, Question, GroupQuestion, Message
-from app.services.llm_service import LLMService
+from app.services.facilitator.llm_service import LLMService
 from app.config import settings
 
 

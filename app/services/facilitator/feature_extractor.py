@@ -6,13 +6,10 @@ Extracts time-based features from conversation messages.
 from datetime import datetime, timedelta
 from typing import List, Dict, Any
 
-from app.models.database import Message
-
-
 class TemporalFeatureExtractor:
     """Extract temporal features from conversation data for facilitation decision."""
 
-    def __init__(self, messages: List[Message]):
+    def __init__(self, messages: List):
         """
         Args:
             messages: List of Message objects or dicts with 'sender_name', 'timestamp', 'content'
@@ -36,14 +33,20 @@ class TemporalFeatureExtractor:
                 # Dict with string time (legacy format from pilot)
                 time_str = msg.get('time', '00:00')
                 try:
-                    base_date = datetime(2024, 1, 1)
                     time_obj = datetime.strptime(time_str, '%H:%M')
-                    timestamp = base_date.replace(hour=time_obj.hour, minute=time_obj.minute)
 
-                    # Handle day rollover
-                    if timestamps and timestamp < timestamps[-1]:
-                        base_date += timedelta(days=1)
+                    if timestamps:
+                        # Use previous timestamp's date as base
+                        prev_ts = timestamps[-1]
+                        base_date = prev_ts.replace(hour=0, minute=0, second=0, microsecond=0)
                         timestamp = base_date.replace(hour=time_obj.hour, minute=time_obj.minute)
+
+                        # Handle day rollover: if new time is earlier than previous message
+                        if timestamp < prev_ts:
+                            timestamp += timedelta(days=1)
+                    else:
+                        # First message - use fixed base date
+                        timestamp = datetime(2024, 1, 1, time_obj.hour, time_obj.minute)
 
                     timestamps.append(timestamp)
                 except ValueError:

@@ -1,8 +1,8 @@
-"""Initial migration with GroupQuestion threads
+"""initial_schema
 
-Revision ID: b9cc5670d07e
+Revision ID: 89565fea5039
 Revises: 
-Create Date: 2026-01-24 13:50:45.731422
+Create Date: 2026-03-16 10:34:31.887694
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = 'b9cc5670d07e'
+revision: str = '89565fea5039'
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None

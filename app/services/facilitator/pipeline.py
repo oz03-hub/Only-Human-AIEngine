@@ -9,10 +9,9 @@ from typing import List, Dict, Any, Optional, Callable, TypeVar
 import joblib
 import numpy as np
 
-from app.config import settings
-from app.models.database import Message
-from app.core.feature_extractor import TemporalFeatureExtractor
-from app.services.llm_service import LLMService
+from .config import settings
+from .feature_extractor import TemporalFeatureExtractor
+from .llm_service import LLMService
 
 logger = logging.getLogger(__name__)
 
@@ -125,7 +124,7 @@ class FacilitationDecisionPipeline:
 
     async def stage1_temporal_classification(
         self,
-        messages: List[Message]
+        messages: List[Dict[str, Any]]
     ) -> Dict[str, Any]:
         """
         Stage 1: Extract temporal features and use Random Forest to classify.
@@ -171,14 +170,18 @@ class FacilitationDecisionPipeline:
 
     async def stage2_llm_verification(
         self,
-        messages: List[Message],
-        last_n: int = 10
+        topic: str,
+        messages: List[Dict[str, Any]],
+        current_time: str = "",
+        last_n: int = 15,
     ) -> Dict[str, Any]:
         """
         Stage 2: Use LLM to verify if facilitation is needed (zero-shot).
 
         Args:
+            topic: String group question
             messages: List of Message objects
+            current_time: Current simulated time as HH:MM string
             last_n: Number of recent messages to send to LLM
 
         Returns:
@@ -198,29 +201,37 @@ class FacilitationDecisionPipeline:
         result = await retry_with_exponential_backoff(
             self.llm_service.verify_facilitation_needed,
             max_retries=self.max_retries,
+            topic=topic,
             conversation_text=conversation_text,
-            num_messages=len(recent_messages)
+            num_messages=len(recent_messages),
+            current_time=current_time,
         )
 
         logger.info(f"LLM Verification Result:")
         logger.info(f"  Needs Facilitation: {result['needs_facilitation']}")
         logger.info(f"  Reasoning: {result['reasoning']}")
-        logger.info(f"  Confidence: {result.get('confidence', 0):.2%}")
 
         return result
 
     async def stage3_generate_facilitation(
         self,
-        messages: List[Message],
+        topic: str,
+        messages: List[Dict[str, Any]],
         verification_reasoning: str,
-        last_n: int = 10
+        intervention_focus: str = "general",
+        current_time: str = "",
+        last_n: int = 15,
+        red_flag_feedback: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         Stage 3: Generate facilitation response using LLM.
 
         Args:
+            topic: String group question
             messages: List of Message objects
             verification_reasoning: Reasoning from stage 2
+            intervention_focus: Focus area for intervention from stage 2
+            current_time: Current simulated time as HH:MM string
             last_n: Number of recent messages to use for context
 
         Returns:
@@ -240,31 +251,87 @@ class FacilitationDecisionPipeline:
         result = await retry_with_exponential_backoff(
             self.llm_service.generate_facilitation_message,
             max_retries=self.max_retries,
+            topic=topic,
             conversation_text=conversation_text,
-            verification_reasoning=verification_reasoning
+            verification_reasoning=verification_reasoning,
+            intervention_focus=intervention_focus,
+            current_time=current_time,
+            red_flag_feedback=red_flag_feedback,
         )
 
         logger.info(f"Generated Facilitation:")
-        logger.info(f"  Approach: {result['approach']}")
         logger.info(f"  Message: {result['facilitation_message']}")
+
+        return result
+
+    async def stage4_verify_red_flags(
+        self,
+        topic: str,
+        messages: List[Dict[str, Any]],
+        facilitation_message: str,
+        last_n: int = 15
+    ) -> Dict[str, Any]:
+        """
+        Stage 4: Verify that facilitation message doesn't contain red flags.
+
+        Args:
+            topic: String group question
+            messages: List of Message objects
+            facilitation_message: The generated facilitation message to verify
+            last_n: Number of recent messages to use for context
+
+        Returns:
+            Dict with 'has_red_flags', 'red_flags_detected', 'severity', 'reasoning', 'recommendation'
+        """
+        logger.info("="*60)
+        logger.info("STAGE 4: Red Flag Verification")
+        logger.info("="*60)
+
+        # Get last N messages
+        recent_messages = messages[-last_n:] if len(messages) > last_n else messages
+
+        # Format conversation for LLM
+        conversation_text = self.llm_service.format_conversation(recent_messages)
+
+        # Call LLM service with retry logic
+        result = await retry_with_exponential_backoff(
+            self.llm_service.verify_red_flags,
+            max_retries=self.max_retries,
+            topic=topic,
+            conversation_text=conversation_text,
+            facilitation_message=facilitation_message
+        )
+
+        logger.info(f"Red Flag Verification Result:")
+        logger.info(f"  Has Red Flags: {result['has_red_flags']}")
+        logger.info(f"  Severity: {result['severity']}")
+        logger.info(f"  Recommendation: {result['recommendation']}")
+        if result['has_red_flags']:
+            logger.info(f"  Red Flags Detected: {', '.join(result['red_flags_detected'])}")
+            logger.info(f"  Reasoning: {result['reasoning']}")
 
         return result
 
     async def run_pipeline(
         self,
-        messages: List[Message],
+        topic: str,
+        messages: List[Dict[str, Any]],
+        max_regeneration_attempts: int = 2,
+        current_time: str = "",
     ) -> Dict[str, Any]:
         """
         Run the complete multi-stage facilitation pipeline.
 
         Args:
+            topic: String group question
             messages: List of Message objects
+            max_regeneration_attempts: Maximum number of times to regenerate if red flags detected
 
         Returns:
             Dict with complete pipeline results and final decision
         """
         logger.info("="*70)
-        logger.info("FACILITATION DECISION PIPELINE")
+        logger.info("FACILITATION DECISION PIPELINE (4-Stage)")
         logger.info("="*70)
         logger.info(f"Analyzing conversation with {len(messages)} messages...")
 
@@ -272,6 +339,7 @@ class FacilitationDecisionPipeline:
             'stage1': None,
             'stage2': None,
             'stage3': None,
+            'stage4': None,
             'final_decision': 'NO_FACILITATION',
             'facilitation_message': None
         }
@@ -288,7 +356,7 @@ class FacilitationDecisionPipeline:
             return pipeline_result
 
         # STAGE 2: LLM Verification
-        stage2_result = await self.stage2_llm_verification(messages)
+        stage2_result = await self.stage2_llm_verification(topic, messages, current_time=current_time)
         pipeline_result['stage2'] = stage2_result
 
         if not stage2_result['needs_facilitation']:
@@ -300,20 +368,82 @@ class FacilitationDecisionPipeline:
             pipeline_result['final_decision'] = 'NO_FACILITATION_AFTER_VERIFY'
             return pipeline_result
 
-        # STAGE 3: Generate Facilitation
-        stage3_result = await self.stage3_generate_facilitation(
-            messages,
-            stage2_result['reasoning']
-        )
+        # Extract intervention focus from stage 2 (if available)
+        intervention_focus = stage2_result.get('intervention_focus', 'general')
+
+        # STAGE 3: Generate Facilitation (with potential regeneration)
+        regeneration_attempt = 0
+        stage3_result = None
+        stage4_result = None
+        red_flag_feedback = None
+
+        while regeneration_attempt <= max_regeneration_attempts:
+            # Generate facilitation message (include red flag feedback on retries)
+            stage3_result = await self.stage3_generate_facilitation(
+                topic,
+                messages,
+                stage2_result['reasoning'],
+                intervention_focus,
+                current_time=current_time,
+                red_flag_feedback=red_flag_feedback,
+            )
+
+            # STAGE 4: Verify Red Flags
+            stage4_result = await self.stage4_verify_red_flags(
+                topic,
+                messages,
+                stage3_result['facilitation_message']
+            )
+
+            # Check recommendation
+            recommendation = stage4_result.get('recommendation', 'approve')
+
+            if recommendation == 'approve':
+                logger.info("Stage 4: Message approved - no red flags detected")
+                break
+            elif recommendation == 'revise' and regeneration_attempt < max_regeneration_attempts:
+                logger.warning(
+                    f"Stage 4: Message needs revision (attempt {regeneration_attempt + 1}/{max_regeneration_attempts}). "
+                    f"Red flags: {', '.join(stage4_result.get('red_flags_detected', []))}"
+                )
+                red_flag_feedback = {
+                    'red_flags_detected': stage4_result.get('red_flags_detected', []),
+                    'reasoning': stage4_result.get('reasoning', ''),
+                }
+                regeneration_attempt += 1
+                continue
+            elif recommendation == 'reject' and regeneration_attempt < max_regeneration_attempts:
+                logger.error(
+                    f"Stage 4: Message rejected (attempt {regeneration_attempt + 1}/{max_regeneration_attempts}). "
+                    f"Red flags: {', '.join(stage4_result.get('red_flags_detected', []))}"
+                )
+                red_flag_feedback = {
+                    'red_flags_detected': stage4_result.get('red_flags_detected', []),
+                    'reasoning': stage4_result.get('reasoning', ''),
+                }
+                regeneration_attempt += 1
+                continue
+            else:
+                # Max attempts reached or other condition
+                logger.warning(
+                    f"Stage 4: Max regeneration attempts reached. "
+                    f"Proceeding with current message despite recommendation: {recommendation}"
+                )
+                break
+
         pipeline_result['stage3'] = stage3_result
+        pipeline_result['stage4'] = stage4_result
         pipeline_result['final_decision'] = 'FACILITATE'
         pipeline_result['facilitation_message'] = stage3_result['facilitation_message']
 
         logger.info("="*70)
-        logger.info("FINAL DECISION: FACILITATION NEEDED")
+        logger.info("FINAL DECISION: FACILITATION APPROVED")
         logger.info("="*70)
         logger.info(f"Facilitation Message:")
         logger.info(f"  {stage3_result['facilitation_message']}")
+        if stage4_result.get('has_red_flags'):
+            logger.warning(f"Warning: Red flags detected but proceeding after {regeneration_attempt} regeneration(s)")
+            logger.warning(f"  Red Flags: {', '.join(stage4_result.get('red_flags_detected', []))}")
         logger.info("="*70)
 
         return pipeline_result

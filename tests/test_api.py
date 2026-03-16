@@ -32,42 +32,45 @@ class TestWebhookEndpoint:
 
     @pytest.fixture
     def webhook_payload(self):
-        """Sample webhook payload."""
+        """Sample webhook payload matching the actual webhookschema.json format."""
         return {
-            "groups": [
-                {
-                    "group_id": 123,
-                    "group_name": "Test Group",
-                    "members": [
-                        {
-                            "user_id": "user-1",
-                            "first_name": "John",
-                            "last_name": "Doe"
-                        }
-                    ],
-                    "questions": [
-                        {
-                            "id": "question-1",
-                            "text": "What is your favorite memory?",
-                            "options": ["Family", "Friends", "Travel", "Other"],
-                            "status": "active",
-                            "unlock_order": 1
-                        }
-                    ],
-                    "messages": [
-                        {
-                            "question_id": "question-1",
-                            "user_id": "user-1",
-                            "first_name": "John",
-                            "last_name": "Doe",
-                            "content": "I love spending time with family!",
-                            "created_at": "2024-01-15T10:30:00Z",
-                            "is_ai": False
-                        }
-                    ],
-                    "last_ai_message_at": None
-                }
-            ]
+            "payload": {
+                "groups_metadata": [
+                    {"group_id": 123, "status": "active", "status_updated_at": None}
+                ],
+                "groups": [
+                    {
+                        "group_id": 123,
+                        "group_name": "Test Group",
+                        "members": [
+                            {"user_id": "user-1", "first_name": "John", "last_name": "Doe"}
+                        ],
+                        "threads": [
+                            {
+                                "question": {
+                                    "id": "question-1",
+                                    "text": "What is your favorite memory?",
+                                    "options": ["Family", "Friends", "Travel", "Other"],
+                                    "status": "active",
+                                    "unlock_order": 1,
+                                },
+                                "messages": [
+                                    {
+                                        "user_id": "user-1",
+                                        "first_name": "John",
+                                        "last_name": "Doe",
+                                        "content": "I love spending time with family!",
+                                        "created_at": "2024-01-15T10:30:00Z",
+                                        "is_ai": False,
+                                        "is_current_member": True,
+                                    }
+                                ],
+                                "last_ai_message_at": None,
+                            }
+                        ],
+                    }
+                ],
+            }
         }
 
     @pytest.mark.asyncio
@@ -158,88 +161,49 @@ class TestWebhookEndpoint:
     ):
         """Test webhook with multiple groups and questions."""
         payload = {
-            "groups": [
-                {
-                    "group_id": 100,
-                    "group_name": "Group 1",
-                    "members": [
-                        {
-                            "user_id": "user-1",
-                            "first_name": "Alice",
-                            "last_name": "Smith"
-                        }
-                    ],
-                    "questions": [
-                        {
-                            "id": "q1",
-                            "text": "Question 1",
-                            "options": ["A", "B"],
-                            "status": "active",
-                            "unlock_order": 1
-                        },
-                        {
-                            "id": "q2",
-                            "text": "Question 2",
-                            "options": ["C", "D"],
-                            "status": "active",
-                            "unlock_order": 2
-                        }
-                    ],
-                    "messages": [
-                        {
-                            "question_id": "q1",
-                            "user_id": "user-1",
-                            "first_name": "Alice",
-                            "last_name": "Smith",
-                            "content": "Message for Q1",
-                            "created_at": "2024-01-15T10:30:00Z",
-                            "is_ai": False
-                        },
-                        {
-                            "question_id": "q2",
-                            "user_id": "user-1",
-                            "first_name": "Alice",
-                            "last_name": "Smith",
-                            "content": "Message for Q2",
-                            "created_at": "2024-01-15T10:31:00Z",
-                            "is_ai": False
-                        }
-                    ],
-                    "last_ai_message_at": None
-                },
-                {
-                    "group_id": 200,
-                    "group_name": "Group 2",
-                    "members": [
-                        {
-                            "user_id": "user-2",
-                            "first_name": "Bob",
-                            "last_name": "Jones"
-                        }
-                    ],
-                    "questions": [
-                        {
-                            "id": "q3",
-                            "text": "Question 3",
-                            "options": ["E", "F"],
-                            "status": "active",
-                            "unlock_order": 1
-                        }
-                    ],
-                    "messages": [
-                        {
-                            "question_id": "q3",
-                            "user_id": "user-2",
-                            "first_name": "Bob",
-                            "last_name": "Jones",
-                            "content": "Message for Q3",
-                            "created_at": "2024-01-15T10:32:00Z",
-                            "is_ai": False
-                        }
-                    ],
-                    "last_ai_message_at": None
-                }
-            ]
+            "payload": {
+                "groups_metadata": [
+                    {"group_id": 100, "status": "active"},
+                    {"group_id": 200, "status": "active"},
+                ],
+                "groups": [
+                    {
+                        "group_id": 100,
+                        "group_name": "Group 1",
+                        "members": [{"user_id": "user-1", "first_name": "Alice", "last_name": "Smith"}],
+                        "threads": [
+                            {
+                                "question": {"id": "q1", "text": "Question 1", "options": ["A", "B"], "status": "active", "unlock_order": 1},
+                                "messages": [
+                                    {"user_id": "user-1", "first_name": "Alice", "last_name": "Smith", "content": "Message for Q1", "created_at": "2024-01-15T10:30:00Z", "is_ai": False, "is_current_member": True}
+                                ],
+                                "last_ai_message_at": None,
+                            },
+                            {
+                                "question": {"id": "q2", "text": "Question 2", "options": ["C", "D"], "status": "active", "unlock_order": 2},
+                                "messages": [
+                                    {"user_id": "user-1", "first_name": "Alice", "last_name": "Smith", "content": "Message for Q2", "created_at": "2024-01-15T10:31:00Z", "is_ai": False, "is_current_member": True}
+                                ],
+                                "last_ai_message_at": None,
+                            },
+                        ],
+                    },
+                    {
+                        "group_id": 200,
+                        "group_name": "Group 2",
+                        "members": [{"user_id": "user-2", "first_name": "Bob", "last_name": "Jones"}],
+                        "threads": [
+                            {
+                                "question": {"id": "q3", "text": "Question 3", "options": ["E", "F"], "status": "active", "unlock_order": 1},
+                                "messages": [
+                                    {"user_id": "user-2", "first_name": "Bob", "last_name": "Jones", "content": "Message for Q3", "created_at": "2024-01-15T10:32:00Z", "is_ai": False, "is_current_member": True}
+                                ],
+                                "last_ai_message_at": None,
+                            }
+                        ],
+                    },
+                ],
+            }
         }
 
         headers = {"X-API-Key": settings.api_key}
@@ -261,12 +225,17 @@ class TestWebhookEndpoint:
         headers = {"X-API-Key": settings.api_key}
 
         invalid_payload = {
-            "groups": [
-                {
-                    "group_id": "invalid",  # Should be int
-                    "group_name": "Test"
-                }
-            ]
+            "payload": {
+                "groups_metadata": [],
+                "groups": [
+                    {
+                        "group_id": "invalid",  # Should be int
+                        "group_name": "Test",
+                        "members": [],
+                        "threads": [],
+                    }
+                ],
+            }
         }
 
         response = await client.post(

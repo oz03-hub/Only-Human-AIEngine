@@ -5,7 +5,7 @@ Handles all database operations related to messages, users, questions, and facil
 
 import logging
 from datetime import datetime
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Set, Tuple
 
 from sqlalchemy import select, and_, desc
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -87,7 +87,6 @@ class MessageService:
         self,
         external_id: int,
         group_name: str = "",
-        last_ai_message_at: Optional[datetime] = None,
     ) -> Group:
         """
         Get existing group or create new one.
@@ -95,7 +94,6 @@ class MessageService:
         Args:
             external_id: External group ID from the chat application
             group_name: Name of the group
-            last_ai_message_at: Timestamp of last AI message
 
         Returns:
             Group object
@@ -107,13 +105,16 @@ class MessageService:
         group = result.scalar_one_or_none()
 
         if group:
+            # Update name if changed
+            if group_name and group.group_name != group_name:
+                group.group_name = group_name
+                await self.session.flush()
             return group
 
         # Create new group
         group = Group(
             external_id=external_id,
             group_name=group_name,
-            last_ai_message_at=last_ai_message_at,
             created_at=datetime.now(),
         )
         self.session.add(group)
@@ -539,20 +540,29 @@ class MessageService:
 
     async def store_webhook_content(
         self, webhook_content: WebhookIncomingRequest
-    ) -> Dict[int, List[Message]]:
+    ) -> Dict[int, Dict[str, List[Message]]]:
         """
         Store all data from webhook payload (groups, members, questions, messages).
+        Also syncs group active status from groups_metadata.
 
         Args:
             webhook_content: Webhook payload containing groups and messages
 
         Returns:
-            Dictionary mapping group_id to list of created Message objects
+            Dict mapping group_external_id -> question_external_id -> list of new Messages
         """
-        messages_by_group_by_question: Dict[int, Dict[int, List[str]]] = {}
-        groups: List[WebhookIncomingGroup] = webhook_content.groups
+        messages_by_group_by_question: Dict[int, Dict[str, List[Message]]] = {}
+        payload = webhook_content.payload
 
-        for group_data in groups:
+        # Sync group active status from groups_metadata
+        for meta in payload.groups_metadata:
+            is_active = meta.status == "active"
+            await self.update_group_active_status(
+                external_id=meta.group_id, new_status=is_active
+            )
+
+        # Process full group data
+        for group_data in payload.groups:
             group_id: int = group_data.group_id
             messages_by_group_by_question[group_id] = {}
 
@@ -560,23 +570,21 @@ class MessageService:
             group = await self.get_or_create_group(
                 external_id=group_id,
                 group_name=group_data.group_name,
-                last_ai_message_at=group_data.last_ai_message_at,
             )
 
             # Create/update members
             for member_data in group_data.members:
                 user = await self.get_or_create_user(
                     external_user_id=member_data.user_id,
-                    first_name=member_data.first_name,
-                    last_name=member_data.last_name,
+                    first_name=member_data.first_name or "",
+                    last_name=member_data.last_name or "",
                 )
                 await self.get_or_create_member(group=group, user=user)
 
-            # Create/update questions, group-question threads, and options
-            # Map question external_id to GroupQuestion object for message creation
-            group_question_map: Dict[str, GroupQuestion] = {}
+            # Process threads (each thread = question + its messages)
+            for thread in group_data.threads:
+                question_data = thread.question
 
-            for question_data in group_data.questions:
                 # Create/update the global Question
                 question = await self.get_or_create_question(
                     external_id=question_data.id,
@@ -596,52 +604,71 @@ class MessageService:
                     unlock_order=question_data.unlock_order,
                 )
 
-                # Store mapping for message creation
-                group_question_map[question_data.id] = group_question
                 messages_by_group_by_question[group_id][question_data.id] = []
 
-            # Create messages
-            new_messages: List[WebhookIncomingMessage] = group_data.messages
-            for message_data in new_messages:
-                # Get user
-                user = await self.get_or_create_user(
-                    external_user_id=message_data.user_id,
-                    first_name=message_data.first_name,
-                    last_name=message_data.last_name,
-                )
-
-                # Get GroupQuestion for this message
-                group_question = group_question_map.get(message_data.question_id)
-                if not group_question:
-                    logger.warning(
-                        f"GroupQuestion for question_id {message_data.question_id} "
-                        f"not found in group {group_id}. Skipping message."
+                # Create messages for this thread
+                for message_data in thread.messages:
+                    user = await self.get_or_create_user(
+                        external_user_id=message_data.user_id,
+                        first_name=message_data.first_name or "",
+                        last_name=message_data.last_name or "",
                     )
-                    continue
 
-                # Create message
-                message = await self.create_message(
-                    group=group,
-                    user=user,
-                    content=message_data.content,
-                    timestamp=message_data.created_at,
-                    group_question=group_question,
-                    is_ai=message_data.is_ai,
-                )
+                    message = await self.create_message(
+                        group=group,
+                        user=user,
+                        content=message_data.content,
+                        timestamp=message_data.created_at,
+                        group_question=group_question,
+                        is_ai=message_data.is_ai,
+                    )
 
-                # Use the external_id from webhook data instead of accessing relationship
-                messages_by_group_by_question[group_id][
-                    message_data.question_id
-                ].append(message)
+                    messages_by_group_by_question[group_id][question_data.id].append(message)
 
         await self.session.commit()
+        total_threads = sum(len(qs) for qs in messages_by_group_by_question.values())
+        total_messages = sum(
+            len(msgs) for qs in messages_by_group_by_question.values() for msgs in qs.values()
+        )
         logger.info(
-            f"Stored webhook content: {len(groups)} groups,"
-            f"{sum(len(qs) for qs in messages_by_group_by_question.values())} group questions,"
-            f"{sum(len(q) for qs in messages_by_group_by_question.values() for q in qs.values())} total messages."
+            f"Stored webhook content: {len(payload.groups)} groups, "
+            f"{total_threads} threads, {total_messages} messages."
         )
 
         return messages_by_group_by_question
+
+    async def get_active_group_questions_not_in(
+        self, exclude_pairs: Set[Tuple[int, str]]
+    ) -> List[Tuple[int, str]]:
+        """
+        Get all active (group_external_id, question_external_id) pairs not in the given set.
+        Only returns threads in active groups with active question status.
+
+        Args:
+            exclude_pairs: Set of (group_external_id, question_external_id) to exclude
+
+        Returns:
+            List of (group_external_id, question_external_id) tuples
+        """
+        result = await self.session.execute(
+            select(Group, Question)
+            .join(GroupQuestion, GroupQuestion.group_id == Group.id)
+            .join(Question, GroupQuestion.question_id == Question.id)
+            .where(
+                and_(
+                    Group.is_active == True,
+                    GroupQuestion.status == "active",
+                )
+            )
+        )
+
+        pairs = []
+        for group, question in result.all():
+            pair = (group.external_id, question.external_id)
+            if pair not in exclude_pairs:
+                pairs.append(pair)
+
+        return pairs
 
     # ===== Facilitation Log CRUD Operations =====
 

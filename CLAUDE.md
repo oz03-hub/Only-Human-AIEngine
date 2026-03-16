@@ -40,8 +40,7 @@ app/
 │       └── auth.py          # API key authentication (Phase 2)
 │
 ├── core/
-│   ├── pipeline.py          # FacilitationDecisionPipeline (Phase 2)
-│   ├── feature_extractor.py # TemporalFeatureExtractor (Phase 2)
+│   ├── Unused currently
 │
 ├── models/
 │   ├── database.py      # SQLAlchemy models (Chatroom, Message, FacilitationLog)
@@ -49,8 +48,8 @@ app/
 │
 └── services/
     ├── message_service.py      # Message CRUD operations (Phase 2)
-    ├── facilitation_service.py # Pipeline orchestration (Phase 2)
-    └── llm_service.py          # OpenAI API wrapper (Phase 2)
+    ├── webhook_service.py
+    ├── facilitator # facilitation logic that needs to be updated to fit the server
 ```
 
 ## Tech Stack Explained
@@ -71,27 +70,30 @@ app/
 
 ## Facilitation Pipeline Architecture
 
-The system implements a 3-stage decision pipeline with early termination:
+The system implements a 4-stage decision pipeline with early termination. All logic exists in `app/services/facilitator/`:
 
 ```
 Stage 1: Temporal Classification (Random Forest)
     ↓ (if facilitation indicated)
-Stage 2: LLM Zero-Shot Verification (gpt-4o-mini)
+Stage 2: LLM Zero-Shot Verification
     ↓ (if verified)
 Stage 3: Generate Facilitation Message
+    ↓
+Stage 4: Check for Red-flags, return stage 3 if any, if not sends the message
 ```
 
-**Stage 1:** Pre-trained Random Forest classifier analyzes temporal features (message counts in windows, gaps between messages)
+## Incoming Request Example
+The client application will send a request to this server every 20 minutes with new messages or changes in the client application.
 
-**Stage 2:** LLM verifies facilitation need based on conversation content (staleness, conflict, distress, dominance, low engagement)
+The `webhookschema.json` has the format example of the incoming requests.
 
-**Stage 3:** LLM generates empathetic facilitation message (open-ended questions, emotional validation, gentle redirection)
-
-## Database Schema
-
-- **chatrooms** - Group conversation metadata
-- **messages** - Individual chat messages with sender and timestamp
-- **facilitation_logs** - Pipeline execution results (stage decisions, generated messages)
+A few notes:
+- Each request payload will contain all existing groups in the app, when a request comes in we need to handle creation in the database if a new group comes
+- Each group has threads, and the threads are where the conversation happens.
+- Each group, thread pair can be imagined as a unique text channel that needs facilitation.
+- Each thread has the same members as the group, so there should also be a members table.
+- We only need to check for facilitation in "active" threads. We should sync the status of all threads with what is provided in the payload.
+- For facilitation, with each incoming requests we will check for facilitation for active threads in the payload, and will check all other threads that are also active but was not in the payload with 20% chance.
 
 Database file: `data/aiengine.db` (SQLite for development)
 
@@ -104,8 +106,6 @@ Database file: `data/aiengine.db` (SQLite for development)
 5. **Check logs:** Server outputs structured logs to stdout
 
 ## Reference Files
-
-- `facilitate.py` and `feature_extractor.py` - Pilot implementation for reference when building Phase 2
 - `models/temporal_classifier.pkl` - Pre-trained Random Forest model
 - `.env` - Environment variables (OPENAI_API_KEY, DATABASE_URL, etc.)
 

@@ -4,6 +4,7 @@ Receives incoming messages from the chat application, stores them, and initiates
 """
 
 import logging
+import random
 from typing import Tuple, List, Dict, Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
@@ -208,14 +209,12 @@ async def save_messages(
     Returns:
         Success response with count of messages and groups and question threads affected
     """
-    logger.info(f"Received webhook with {len(request.groups)} groups")
+    logger.info(f"Received webhook with {len(request.payload.groups)} groups")
 
     try:
         # Store messages
         message_service = MessageService(session)
-        messages_by_group_by_question = await message_service.store_webhook_content(
-            request
-        )
+        messages_by_group_by_question = await message_service.store_webhook_content(request)
 
         logger.info("Successfully stored messages.")
 
@@ -226,9 +225,9 @@ async def save_messages(
                 len(qs) for qs in messages_by_group_by_question.values()
             ),
             messages_received=sum(
-                len(q)
+                len(msgs)
                 for qs in messages_by_group_by_question.values()
-                for q in qs.values()
+                for msgs in qs.values()
             ),
         )
 
@@ -274,27 +273,37 @@ async def receive_messages_webhook(
     Returns:
         Success response with count of messages and groups and question threads affected
     """
-    logger.info(f"Received webhook with {len(request.groups)} groups")
+    logger.info(f"Received webhook with {len(request.payload.groups)} groups")
 
     try:
-        # Store messages
+        # Store messages and sync state
         message_service = MessageService(session)
-        messages_by_group_by_question = await message_service.store_webhook_content(
-            request
-        )
+        messages_by_group_by_question = await message_service.store_webhook_content(request)
 
         logger.info("Successfully stored messages.")
 
-        group_question_id_pairs = {
-            (group.group_id, message.question_id)
-            for group in request.groups
-            for message in group.messages
+        # Collect active threads from this payload
+        payload_active_pairs = {
+            (group.group_id, thread.question.id)
+            for group in request.payload.groups
+            for thread in group.threads
+            if thread.question.status == "active"
         }
 
-        # Add background task to process facilitation
-        background_tasks.add_task(
-            process_facilitation_background, list(group_question_id_pairs)
+        # Also include active threads from DB not in the payload, with 20% probability
+        other_active_pairs = await message_service.get_active_group_questions_not_in(
+            payload_active_pairs
         )
+        sampled_pairs = [p for p in other_active_pairs if random.random() < 0.2]
+
+        all_pairs = list(payload_active_pairs) + sampled_pairs
+        logger.info(
+            f"Facilitation targets: {len(payload_active_pairs)} from payload, "
+            f"{len(sampled_pairs)} sampled from {len(other_active_pairs)} other active threads"
+        )
+
+        # Add background task to process facilitation
+        background_tasks.add_task(process_facilitation_background, all_pairs)
         logger.info("Added facilitation processing to background tasks")
 
         # Return immediately with success
@@ -305,9 +314,9 @@ async def receive_messages_webhook(
                 len(qs) for qs in messages_by_group_by_question.values()
             ),
             messages_received=sum(
-                len(q)
+                len(msgs)
                 for qs in messages_by_group_by_question.values()
-                for q in qs.values()
+                for msgs in qs.values()
             ),
         )
 

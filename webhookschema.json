@@ -1,117 +1,214 @@
 {
-    "groups": [
-        {
-            "group_id": 123,
-            "group_name": "Study Group Alpha",
-            "members": [
-                {
-                    "user_id": "uuid-user-1",
-                    "first_name": "John",
-                    "last_name": "Doe"
-                },
-                {
-                    "user_id": "uuid-user-2",
-                    "first_name": "Jane",
-                    "last_name": "Smith"
-                },
-                {
-                    "user_id": "uuid-user-3",
-                    "first_name": "Bob",
-                    "last_name": "Wilson"
-                }
-            ],
-            "questions": [
-                {
-                    "id": "uuid-question-1",
-                    "text": "What's your favorite childhood memory?",
-                    "options": [
-                        "Family vacations",
-                        "School events",
-                        "Holidays",
-                        "Other"
-                    ],
-                    "status": "active",
-                    "unlock_order": 1
-                },
-                {
-                    "id": "uuid-question-2",
-                    "text": "Describe a challenge you overcame",
-                    "options": [
-                        "Work",
-                        "Personal",
-                        "Academic",
-                        "Other"
-                    ],
-                    "status": "active",
-                    "unlock_order": 2
-                }
-            ],
-            "messages": [
-                {
-                    "question_id": "uuid-question-1",
-                    "user_id": "uuid-user-1",
-                    "first_name": "John",
-                    "last_name": "Doe",
-                    "content": "<highlight>Family vacations</highlight> I loved our summer camping trips!",
-                    "created_at": "2024-01-14T10:30:00Z",
-                    "is_ai": false
-                },
-                {
-                    "question_id": "uuid-question-1",
-                    "user_id": "uuid-user-2",
-                    "first_name": "Jane",
-                    "last_name": "Smith",
-                    "content": "<highlight>Holidays</highlight> We always had big family gatherings",
-                    "created_at": "2024-01-14T11:00:00Z",
-                    "is_ai": false
-                },
-                {
-                    "question_id": "uuid-question-1",
-                    "user_id": "00000000-0000-0000-0000-000000000000",
-                    "first_name": "AI",
-                    "last_name": "Assistant",
-                    "content": "Both sound wonderful! What made those moments special?",
-                    "created_at": "2024-01-14T11:30:00Z",
-                    "is_ai": true
-                },
-                {
-                    "question_id": "uuid-question-2",
-                    "user_id": "uuid-user-1",
-                    "first_name": "John",
-                    "last_name": "Doe",
-                    "content": "<highlight>Work</highlight> I had to lead my first big project last year",
-                    "created_at": "2024-01-15T09:00:00Z",
-                    "is_ai": false
-                },
-                {
-                    "question_id": "uuid-question-1",
-                    "user_id": "uuid-user-3",
-                    "first_name": "Bob",
-                    "last_name": "Wilson",
-                    "content": "<highlight>School events</highlight> I remember my graduation day clearly",
-                    "created_at": "2024-01-15T10:00:00Z",
-                    "is_ai": false
-                }
-            ],
-            "last_ai_message_at": "2024-01-14T11:30:00Z"
-        }
-    ],
-    "groups_metadata": [
-        {
-            "status": "pending",
-            "group_id": 1
-        },
-        {
-            "status": "active",
-            "group_id": 2
-        },
-        {
-            "status": "archived",
-            "group_id": 4
-        },
-        {
-            "status": "completed",
-            "group_id": 5
-        }
-    ]
+    "success": true,
+    "dry_run": true,
+    "active_groups": 9,
+    "total_groups": 12,
+    "total_threads": 26,
+    "total_messages": 33,
+    "payload_size_kb": 19,
+    "payload": {
+        "groups_metadata": [
+            {
+                "group_id": 4,
+                "status": "active",
+                "status_updated_at": "2026-02-20T10:00:00Z"
+            },
+            { "group_id": 2, "status": "pending", "status_updated_at": null }
+            ...all the other groups
+        ],
+        "groups": [
+            {
+                "group_id": 4,
+                "group_name": "Item 4 Chat",
+                "members": [],
+                "threads": [],
+            },
+            ....some more empty groups
+            {
+                "group_id": 2,
+                "group_name": "Item 2 Chat",
+                "members": [
+                    {
+                        "user_id": "e1000000-e5ef-4758-a0e3-e19a009b2853",
+                        "first_name": "Cristina",
+                        "last_name": null
+                    },
+                    {
+                        "user_id": "50000000-780a-473c-91fc-b0043688eefc",
+                        "first_name": "Michelle",
+                        "last_name": null
+                    }
+                ],
+                "threads": [
+                    {
+                        "question": {
+                            "id": "50000000-c6ee-4a13-a735-95f08e44d58e",
+                            "text": "When you reflect that several million people have in one way or another directly collaborated in the creation of your mobile phone, what is the first thought you have?",
+                            "options": [],
+                            "status": "expired",
+                            "unlock_order": 1
+                        },
+                        "messages": [],
+                        "last_ai_message_at": null,
+
+                    },
+                    {
+                        "question": {
+                            "id": "f0000000-93b9-4bc1-b368-36bb6feb4709",
+                            "text": "If you could use magic to have the world celebrate any AI breakthrough of your choosing next year, what would you pick, and why?",
+                            "options": [
+                                "Easy . . .",
+                                "Not sure, but . . .",
+                                "Actually . . ."
+                            ],
+                            "status": "active",
+                            "unlock_order": 2
+                        },
+                        "messages": [],
+                        "last_ai_message_at": null,
+
+                    },
+                    {
+                        "question": {
+                            "id": "f0000000-3e89-481e-b3f6-7082fdae2af5",
+                            "text": "Do your feelings of responsibility to others help you through your darkest struggles or add to your burdens? How so?",
+                            "options": [
+                                "Helps me . . .",
+                                "Burdens me . . .",
+                                "Actually . . ."
+                            ],
+                            "status": "active",
+                            "unlock_order": 3
+                        },
+                        "messages": [
+                            {
+                                "user_id": "e1000000-e5ef-4758-a0e3-e19a009b2853",
+                                "first_name": "Cristina",
+                                "last_name": null,
+                                "content": "<highlight>Burdens me . . .</highlight> I feel nothing but pressure when it comes to this type of responsability",
+                                "created_at": "2026-02-16 08:56:44.292422+00",
+                                "is_ai": false,
+                                "is_current_member": true
+                            },
+                            {
+                                "user_id": "60000000-0983-42e0-ab2b-bbcd15d0cc2b",
+                                "first_name": null,
+                                "last_name": null,
+                                "content": "<highlight>Helps me . . .</highlight> It's cool to know you can influence people into making good decisions",
+                                "created_at": "2026-02-16 09:02:26.287041+00",
+                                "is_ai": false,
+                                "is_current_member": false
+                            },
+                            {
+                                "user_id": "70000000-81c4-430a-bdac-33ac0d3b0056",
+                                "first_name": null,
+                                "last_name": null,
+                                "content": "<highlight>Helps me . . .</highlight> ",
+                                "created_at": "2026-02-16 09:24:01.371933+00",
+                                "is_ai": false,
+                                "is_current_member": false
+                            },
+                            {
+                                "user_id": "50000000-780a-473c-91fc-b0043688eefc",
+                                "first_name": "Michelle",
+                                "last_name": null,
+                                "content": "<highlight>Actually . . .</highlight> Not really sure",
+                                "created_at": "2026-02-16 09:26:54.603135+00",
+                                "is_ai": false,
+                                "is_current_member": true
+                            },
+                            {
+                                "user_id": "50000000-780a-473c-91fc-b0043688eefc",
+                                "first_name": "Michelle",
+                                "last_name": null,
+                                "content": "HI there!",
+                                "created_at": "2026-02-16 09:44:56.221113+00",
+                                "is_ai": false,
+                                "is_current_member": true
+                            }
+                        ],
+                        "last_ai_message_at": null,
+
+                    },
+                    {
+                        "question": {
+                            "id": "c0000000-4a07-4112-a8f4-bbad84e30950",
+                            "text": "If you knew that AI could either extend your lifespan significantly or enable you to be much more comfortable with your mortality, which would you prefer?",
+                            "options": [
+                                "A longer life . . .",
+                                "Greater acceptance . . .",
+                                "Actually . . ."
+                            ],
+                            "status": "pending",
+                            "unlock_order": 4
+                        },
+                        "messages": [],
+                        "last_ai_message_at": null,
+
+                    },
+                    {
+                        "question": {
+                            "id": "10000000-5855-4c84-b960-cf04a45c909e",
+                            "text": "If a billion-year-old monolith engraved with strange writing were found on Mars,  how much would it affect your view of humanity, and in what ways?",
+                            "options": [
+                                "A lot . . .",
+                                "Not much . . .",
+                                "Actually . . ."
+                            ],
+                            "status": "pending",
+                            "unlock_order": 5
+                        },
+                        "messages": [],
+                        "last_ai_message_at": null,
+
+                    },
+                    {
+                        "question": {
+                            "id": "80000000-a77e-4d5c-8343-64339ef8afaa",
+                            "text": "If you could slow your aging so much that you'd have a life expectancy ten times what it is now, would you?",
+                            "options": [
+                                "Yes . . .",
+                                "No . . .",
+                                "Actually . . ."
+                            ],
+                            "status": "pending",
+                            "unlock_order": 6
+                        },
+                        "messages": [],
+                        "last_ai_message_at": null,
+
+                    },
+                    {
+                        "question": {
+                            "id": "80000000-8ed2-4c80-ac26-73ddde6c6c12",
+                            "text": "Are you more worried that AI might gain control over humanity and destroy us, or that we might use AI's power in deeply destructive ways? Why?",
+                            "options": [
+                                "AI control . . .",
+                                "Human control . . .",
+                                "Actually . . ."
+                            ],
+                            "status": "pending",
+                            "unlock_order": 7
+                        },
+                        "messages": [],
+                        "last_ai_message_at": null,
+
+                    },
+                    {
+                        "question": {
+                            "id": "70000000-c00f-454b-8a60-01526529b5e0",
+                            "text": "In 20 years, what do you think will be the most basic job that AI will be unable to do as well as humans?",
+                            "options": [],
+                            "status": "pending",
+                            "unlock_order": 8
+                        },
+                        "messages": [],
+                        "last_ai_message_at": null,
+
+                    }
+                ]
+            },
+.....some other similar groups
+        ]
+    }
 }
