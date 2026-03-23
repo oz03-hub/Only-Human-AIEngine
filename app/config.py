@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     )
 
     limit_messages: int = Field(
-        default=10, description="Number of messages retrieved from threads by default"
+        default=20, description="Number of messages retrieved from threads by default"
     )
 
     # OpenAI

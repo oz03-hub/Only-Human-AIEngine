@@ -3,7 +3,7 @@ Temporal feature extraction for facilitation decisions.
 Extracts time-based features from conversation messages.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Any
 
 
@@ -17,19 +17,26 @@ class TemporalFeatureExtractor:
         """
         self.messages = messages
         self.timestamps = self._extract_timestamps()
-        # Use last message as the "current" point for time-based features
-        self.current_index = len(messages) - 1 if messages else 0
+        # Use actual current time as the anchor for time-based features
+        self.current_time = datetime.now(timezone.utc)
+
+    @staticmethod
+    def _to_utc_aware(ts: datetime) -> datetime:
+        """Ensure a datetime is UTC-aware."""
+        if ts.tzinfo is None:
+            return ts.replace(tzinfo=timezone.utc)
+        return ts
 
     def _extract_timestamps(self) -> List[datetime]:
-        """Extract datetime objects from messages."""
+        """Extract UTC-aware datetime objects from messages."""
         timestamps = []
         for msg in self.messages:
             if hasattr(msg, "timestamp"):
                 # Database Message object
-                timestamps.append(msg.timestamp)
+                timestamps.append(self._to_utc_aware(msg.timestamp))
             elif isinstance(msg.get("timestamp"), datetime):
                 # Dict with datetime
-                timestamps.append(msg["timestamp"])
+                timestamps.append(self._to_utc_aware(msg["timestamp"]))
             else:
                 # Dict with string time (legacy format from pilot)
                 time_str = msg.get("time", "00:00")
@@ -51,14 +58,13 @@ class TemporalFeatureExtractor:
                             timestamp += timedelta(days=1)
                     else:
                         # First message - use fixed base date
-                        timestamp = datetime(2024, 1, 1, time_obj.hour, time_obj.minute)
+                        timestamp = datetime(2024, 1, 1, time_obj.hour, time_obj.minute, tzinfo=timezone.utc)
 
-                    timestamps.append(timestamp)
+                    timestamps.append(self._to_utc_aware(timestamp))
                 except ValueError:
                     # If parsing fails, use previous timestamp or base
-                    timestamps.append(
-                        timestamps[-1] if timestamps else datetime(2024, 1, 1)
-                    )
+                    fallback = timestamps[-1] if timestamps else datetime(2024, 1, 1, tzinfo=timezone.utc)
+                    timestamps.append(fallback)
 
         return timestamps
 
@@ -67,8 +73,7 @@ class TemporalFeatureExtractor:
         if not self.timestamps:
             return 0
 
-        current_time = self.timestamps[self.current_index]
-        cutoff = current_time - timedelta(minutes=n)
+        cutoff = self.current_time - timedelta(minutes=n)
 
         count = 0
         for ts in self.timestamps:
@@ -82,8 +87,7 @@ class TemporalFeatureExtractor:
         if not self.timestamps:
             return 0
 
-        current_time = self.timestamps[self.current_index]
-        cutoff = current_time - timedelta(hours=n)
+        cutoff = self.current_time - timedelta(hours=n)
 
         count = 0
         for ts in self.timestamps:
@@ -93,12 +97,11 @@ class TemporalFeatureExtractor:
         return count
 
     def get_messages_today(self) -> int:
-        """Count messages sent today (same day as current message)."""
+        """Count messages sent today."""
         if not self.timestamps:
             return 0
 
-        current_time = self.timestamps[self.current_index]
-        current_day = current_time.date()
+        current_day = self.current_time.date()
 
         count = 0
         for ts in self.timestamps:
@@ -147,15 +150,13 @@ class TemporalFeatureExtractor:
         return duration
 
     def get_time_since_last_message_minutes(self) -> float:
-        """Get time since previous message in minutes."""
-        if self.current_index == 0:
+        """Get time since the last message in minutes."""
+        if not self.timestamps:
             return 0.0
 
-        gap = (
-            self.timestamps[self.current_index]
-            - self.timestamps[self.current_index - 1]
-        ).total_seconds() / 60
-        return gap
+        last_ts = self.timestamps[-1]
+        gap = (self.current_time - last_ts).total_seconds() / 60
+        return max(gap, 0.0)
 
     def extract_all_features(self) -> Dict[str, Any]:
         """

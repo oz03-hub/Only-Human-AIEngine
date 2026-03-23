@@ -7,7 +7,7 @@ import logging
 import random
 from typing import Tuple, List
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.database import get_db, AsyncSessionLocal
@@ -236,6 +236,96 @@ async def save_messages(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error processing messages: {str(e)}",
         )
+
+
+EXAMPLE_PAYLOAD = WebhookIncomingRequest(
+    payload={
+        "groups_metadata": [
+            {"group_id": 2, "status": "active", "status_updated_at": None},
+        ],
+        "groups": [
+            {
+                "group_id": 2,
+                "group_name": "Item 2 Chat",
+                "members": [
+                    {
+                        "user_id": "e1000000-e5ef-4758-a0e3-e19a009b2853",
+                        "first_name": "Cristina",
+                        "last_name": None,
+                    },
+                    {
+                        "user_id": "50000000-780a-473c-91fc-b0043688eefc",
+                        "first_name": "Michelle",
+                        "last_name": None,
+                    },
+                ],
+                "threads": [
+                    {
+                        "question": {
+                            "id": "f0000000-3e89-481e-b3f6-7082fdae2af5",
+                            "text": "Do your feelings of responsibility to others help you through your darkest struggles or add to your burdens? How so?",
+                            "options": ["Helps me . . .", "Burdens me . . .", "Actually . . ."],
+                            "status": "active",
+                            "unlock_order": 3,
+                        },
+                        "messages": [
+                            {
+                                "user_id": "e1000000-e5ef-4758-a0e3-e19a009b2853",
+                                "first_name": "Cristina",
+                                "last_name": None,
+                                "content": "<highlight>Burdens me . . .</highlight> I feel nothing but pressure when it comes to this type of responsability",
+                                "created_at": "2026-02-16 08:56:44.292422+00:00",
+                                "is_ai": False,
+                                "is_current_member": True,
+                            },
+                            {
+                                "user_id": "60000000-0983-42e0-ab2b-bbcd15d0cc2b",
+                                "first_name": None,
+                                "last_name": None,
+                                "content": "<highlight>Helps me . . .</highlight> It's cool to know you can influence people into making good decisions",
+                                "created_at": "2026-02-16 09:02:26.287041+00:00",
+                                "is_ai": False,
+                                "is_current_member": False,
+                            },
+                            {
+                                "user_id": "50000000-780a-473c-91fc-b0043688eefc",
+                                "first_name": "Michelle",
+                                "last_name": None,
+                                "content": "<highlight>Actually . . .</highlight> Not really sure",
+                                "created_at": "2026-02-16 09:26:54.603603+00:00",
+                                "is_ai": False,
+                                "is_current_member": True,
+                            },
+                        ],
+                        "last_ai_message_at": None,
+                    }
+                ],
+            }
+        ],
+    }
+)
+
+
+@router.post(
+    "/trigger",
+    response_model=WebhookResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Manually trigger facilitation pipeline",
+    description="Development endpoint to manually trigger the full webhook + facilitation pipeline. Defaults to an example payload if none is provided.",
+)
+async def trigger_facilitation(
+    background_tasks: BackgroundTasks,
+    request: WebhookIncomingRequest = Body(default=EXAMPLE_PAYLOAD),
+    session: AsyncSession = Depends(get_db),
+    _api_key: str = Depends(verify_api_key),
+):
+    """
+    Manually trigger the facilitation pipeline for testing.
+
+    Accepts the same payload as /webhook. If no body is sent, uses the built-in
+    example payload so you can test without constructing data by hand.
+    """
+    return await receive_messages_webhook(request, background_tasks, session, _api_key)
 
 
 @router.post(

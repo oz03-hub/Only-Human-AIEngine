@@ -2,6 +2,10 @@
 Tests for the webhook client.
 """
 
+import json
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
@@ -238,3 +242,83 @@ class TestWebhookClient:
             call_args = mock_client.post.call_args
             headers = call_args[1]["headers"]
             assert headers["Content-Type"] == "application/json"
+
+
+class TestWebhookClientIntegration:
+    """Integration tests that spin up a real localhost HTTP server."""
+
+    @pytest.fixture
+    def local_server(self):
+        """
+        Start a lightweight HTTP server on localhost that records the last
+        request it received. Yields (host, port, received) where `received`
+        is a mutable dict updated by the handler.
+        """
+        received = {"body": None, "path": None, "status_sent": 200}
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_POST(self):
+                length = int(self.headers.get("Content-Length", 0))
+                received["path"] = self.path
+                received["body"] = json.loads(self.rfile.read(length))
+                self.send_response(received["status_sent"])
+                self.end_headers()
+
+            def log_message(self, *args):
+                pass  # silence request logs during tests
+
+        server = HTTPServer(("127.0.0.1", 0), Handler)  # port 0 = OS picks one
+        port = server.server_address[1]
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+
+        yield "127.0.0.1", port, received
+
+        server.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_payload_reaches_localhost(self, local_server):
+        """WebhookClient actually POSTs the facilitation payload to the target URL."""
+        host, port, received = local_server
+        client = WebhookClient(
+            webhook_url=f"http://{host}:{port}",
+            timeout=5.0,
+            max_retries=0,
+        )
+
+        responses = [
+            {"group_id": 2, "question_id": "f0000000-3e89-481e-b3f6-7082fdae2af5", "message": "How are you all coping today?"},
+        ]
+        result = await client.send_facilitation_responses(responses)
+
+        assert result is True
+        assert received["body"] is not None
+        assert received["path"] == "/api/ai/facilitation"
+
+        payload = received["body"]
+        assert "facilitation_responses" in payload
+        assert len(payload["facilitation_responses"]) == 1
+        msg = payload["facilitation_responses"][0]
+        assert msg["group_id"] == 2
+        assert msg["question_id"] == "f0000000-3e89-481e-b3f6-7082fdae2af5"
+        assert msg["content"] == "How are you all coping today?"
+
+    @pytest.mark.asyncio
+    async def test_non_200_response_returns_false(self, local_server):
+        """WebhookClient returns False when the server responds with a 4xx."""
+        host, port, received = local_server
+        received["status_sent"] = 422  # simulate validation error from target API
+
+        client = WebhookClient(
+            webhook_url=f"http://{host}:{port}",
+            timeout=5.0,
+            max_retries=0,
+        )
+
+        responses = [
+            {"group_id": 2, "question_id": "q1", "message": "Test message"},
+        ]
+        result = await client.send_facilitation_responses(responses)
+
+        assert result is False
+        assert received["body"] is not None  # request did arrive

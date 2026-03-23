@@ -50,15 +50,24 @@ spec:
               name: api-key
               key: latest
 
+        # External application URL for sending facilitation responses
+        # WebhookClient appends /api/ai/facilitation to this base URL
+        - name: APPLICATION_WEBHOOK_URL
+          value: https://REPLACE_WITH_ONLYHUMAN_APP_URL
+
         # Application Configuration
         - name: ENV
           value: production
         - name: LOG_LEVEL
           value: INFO
         - name: MODEL_PATH
-          value: models/rf_classifier.pkl
-        - name: LLM_MODEL
-          value: gpt-4o-mini
+          value: models/temporal_classifier.pkl
+        - name: STAGE_2_MODEL
+          value: gpt-5-mini
+        - name: STAGE_3_MODEL
+          value: gpt-4.1
+        - name: STAGE_4_MODEL
+          value: gpt-5-mini
         - name: MIN_MESSAGES
           value: "5"
         - name: LIMIT_MESSAGES
@@ -70,8 +79,7 @@ spec:
 
         resources:
           limits:
-            # Adjust based on your needs (max 8 CPUs, 32Gi memory for Cloud Run)
-            cpu: "2"
+            cpu: "1"
             memory: 2Gi
 
         # Startup probe (gives app time to start)
@@ -93,7 +101,7 @@ spec:
           timeoutSeconds: 10
           failureThreshold: 3
 
-      # Auto-scaling configuration
+      # Auto-scaling: single instance, always-on (no cold starts, background tasks get CPU)
       scaling:
-        minScale: 0  # Scale to zero when idle (set to 1+ for always-on)
-        maxScale: 10  # Adjust based on expected load
+        minScale: 1
+        maxScale: 1
