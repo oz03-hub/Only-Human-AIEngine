@@ -6,6 +6,7 @@
     "total_threads": 26,
     "total_messages": 33,
     "payload_size_kb": 19,
+    "bypass": true,
     "payload": {
         "groups_metadata": [
             {

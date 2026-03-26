@@ -30,12 +30,14 @@ router = APIRouter(prefix="/api/v1/messages", tags=["messages"])
 
 async def process_facilitation_background(
     group_question_id_pairs: List[Tuple[int, str]],
+    bypass: bool = False,
 ) -> None:
     """
     Background task to process facilitation and send responses.
 
     Args:
         group_question_id_pairs: List of tuples of (group id, question id), each representing a message thread
+        bypass: If true, bypass stages 1 and 2 to always generate facilitation
     """
     logger.info("Starting background facilitation processing")
 
@@ -49,7 +51,7 @@ async def process_facilitation_background(
             # Process facilitation for all threads
             facilitation_responses = (
                 await facilitation_service.process_webhook_messages(
-                    group_question_id_pairs
+                    group_question_id_pairs, bypass=bypass
                 )
             )
 
@@ -394,7 +396,7 @@ async def receive_messages_webhook(
         )
 
         # Add background task to process facilitation
-        background_tasks.add_task(process_facilitation_background, all_pairs)
+        background_tasks.add_task(process_facilitation_background, all_pairs, request.bypass)
         logger.info("Added facilitation processing to background tasks")
 
         # Return immediately with success

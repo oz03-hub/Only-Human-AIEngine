@@ -96,6 +96,7 @@ class WebhookIncomingPayload(BaseModel):
 
 class WebhookIncomingRequest(BaseModel):
     payload: WebhookIncomingPayload
+    bypass: bool = Field(False, description="If true, bypass stages 1 and 2 to always generate facilitation")
 
     model_config = ConfigDict(populate_by_name=True)
 

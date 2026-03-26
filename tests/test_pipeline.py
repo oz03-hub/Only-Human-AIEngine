@@ -242,7 +242,8 @@ class TestFacilitationPipeline:
         self, pipeline, db_session, test_group, test_user, test_group_question
     ):
         """Feature extractor produces expected keys from message timing."""
-        base_time = datetime.now()
+        from datetime import timezone as _tz
+        base_time = datetime.now(_tz.utc)
         messages = [
             Message(
                 group_id=test_group.id,
@@ -251,7 +252,7 @@ class TestFacilitationPipeline:
                 content=f"Message {i}",
                 timestamp=base_time - timedelta(minutes=i * 2),
                 is_ai=False,
-                created_at=datetime.now(),
+                created_at=datetime.now(_tz.utc),
             )
             for i in range(10)
         ]

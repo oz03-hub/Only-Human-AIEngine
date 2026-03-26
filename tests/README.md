@@ -40,6 +40,14 @@ Tests FastAPI endpoints end-to-end:
 - Authentication and validation
 - Multiple groups and questions handling
 
+### Deployment Smoke Tests (`smoke_test.py`)
+Runs against a live deployed instance (e.g. Cloud Run) to verify:
+- Root and health endpoints respond correctly
+- API key authentication rejects unauthorized requests
+- Invalid payloads return 422 (not 500)
+- Webhook stores data and it can be read back via `/logs`
+- Group activity status can be toggled
+
 ## Running Tests
 
 ### Run all tests:
@@ -67,6 +75,18 @@ pytest tests/ --cov=app --cov-report=html
 ```bash
 pytest tests/ -m "not integration"
 ```
+
+### Run smoke tests against a deployment:
+```bash
+python tests/smoke_test.py --url https://your-cloud-run-url --api-key YOUR_API_KEY
+```
+
+You can also set a custom timeout (default 30s):
+```bash
+python tests/smoke_test.py --url https://your-cloud-run-url --api-key YOUR_API_KEY --timeout 60
+```
+
+The script exits with code 0 if all tests pass and code 1 if any fail, so it works in CI/CD pipelines (e.g. as a Cloud Build step after deploy).
 
 ## Test Fixtures
 

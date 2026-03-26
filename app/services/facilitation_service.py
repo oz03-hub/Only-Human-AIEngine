@@ -28,12 +28,14 @@ class FacilitationService:
     async def process_webhook_messages(
         self,
         group_question_id_pairs: List[Tuple[int, str]],
+        bypass: bool = False,
     ) -> List[Dict[str, Any]]:
         """
         Run the facilitation pipeline for the given (group_external_id, question_external_id) pairs.
 
         Args:
             group_question_id_pairs: List of (group_external_id, question_external_id) tuples
+            bypass: If true, bypass stages 1 and 2 to always generate facilitation
 
         Returns:
             List of dicts with 'group_id', 'question_id', 'message' for threads that need facilitation
@@ -43,7 +45,7 @@ class FacilitationService:
         for group_external_id, question_external_id in group_question_id_pairs:
             try:
                 response = await self._process_thread(
-                    group_external_id, question_external_id
+                    group_external_id, question_external_id, bypass=bypass
                 )
                 if response:
                     facilitation_responses.append(response)
@@ -60,6 +62,7 @@ class FacilitationService:
         self,
         group_external_id: int,
         question_external_id: str,
+        bypass: bool = False,
     ) -> Optional[Dict[str, Any]]:
         """
         Run the facilitation pipeline for a single thread.
@@ -123,6 +126,7 @@ class FacilitationService:
             topic=question.text,
             messages=messages,
             current_time=current_time,
+            bypass=bypass,
         )
 
         sent_at = (

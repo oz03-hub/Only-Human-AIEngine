@@ -1,11 +1,12 @@
 """
 End-to-end tests: POST to /webhook → store in DB → pipeline → outbound facilitation POST.
 
-The facilitation pipeline is mocked so all stage decisions are forced to FACILITATE,
-making the tests deterministic and free of real LLM/ML calls.
+Tests use ``bypass: true`` in the webhook payload so that stages 1 and 2 never
+block facilitation.  Only the LLM service and RF model initialisation are mocked;
+the pipeline's bypass orchestration runs for real.
 
-The outbound facilitation call goes to a real localhost HTTP server so we can assert
-that the actual HTTP request is made with the correct payload structure.
+The outbound facilitation call goes to a real localhost HTTP server so we can
+assert that the actual HTTP request is made with the correct payload structure.
 
 Key setup notes:
 - `process_facilitation_background` opens its own AsyncSessionLocal, bypassing the normal
@@ -15,6 +16,7 @@ Key setup notes:
   completes, so `await client.post(...)` only returns after the outbound POST has been made.
 """
 
+import contextlib
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -86,8 +88,8 @@ def _group(group_id: int, threads: list) -> dict:
     }
 
 
-def _payload(groups: list) -> dict:
-    return {
+def _payload(groups: list, bypass: bool = False) -> dict:
+    body = {
         "payload": {
             "groups_metadata": [
                 {"group_id": g["group_id"], "status": "active", "status_updated_at": None}
@@ -96,29 +98,51 @@ def _payload(groups: list) -> dict:
             "groups": groups,
         }
     }
+    if bypass:
+        body["bypass"] = True
+    return body
 
 
-def _facilitate(message: str) -> dict:
-    """Build a complete pipeline result that resolves to FACILITATE."""
-    return {
-        "stage1": {"should_facilitate": True, "probability": 0.95, "features": {}},
-        "stage2": {
-            "needs_facilitation": True,
-            "reasoning": "E2E test: forced facilitation",
-            "confidence": 0.9,
-            "intervention_focus": "general",
-        },
-        "stage3": {"facilitation_message": message, "approach": "Open question"},
-        "stage4": {
-            "has_red_flags": False,
-            "red_flags_detected": [],
-            "severity": "none",
-            "reasoning": "No red flags detected",
-            "recommendation": "approve",
-        },
-        "final_decision": "FACILITATE",
-        "facilitation_message": message,
-    }
+# ---------------------------------------------------------------------------
+# Shared mock helpers
+# ---------------------------------------------------------------------------
+
+
+def _pipeline_init(self, *a, **kw):
+    """Pipeline __init__ replacement: skip loading RF model from disk."""
+    self.llm_service = LLMService()
+    self.max_retries = 0
+
+
+def _mock_llm_patches(facilitation_message: str):
+    """Return a list of patch context managers that mock all LLM calls."""
+    return [
+        patch.object(LLMService, "__init__", return_value=None),
+        patch.object(
+            LLMService, "verify_facilitation_needed",
+            new=AsyncMock(return_value={
+                "needs_facilitation": True,
+                "reasoning": "E2E bypass test",
+                "confidence": 0.9,
+                "intervention_focus": "general",
+            }),
+        ),
+        patch.object(
+            LLMService, "generate_facilitation_message",
+            new=AsyncMock(return_value={
+                "facilitation_message": facilitation_message,
+                "approach": "Open question",
+            }),
+        ),
+        patch.object(
+            LLMService, "verify_red_flags",
+            new=AsyncMock(return_value={
+                "has_red_flags": False, "red_flags_detected": [],
+                "severity": "none", "reasoning": "No issues.",
+                "recommendation": "approve",
+            }),
+        ),
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -189,6 +213,11 @@ async def e2e_client(db_engine):
 class TestFacilitationE2E:
     """
     Full end-to-end: inbound webhook → DB store → facilitation pipeline → outbound POST.
+
+    The first two tests use ``bypass: true`` in the payload so that the
+    pipeline's bypass logic runs for real (stages 1/2 are executed but their
+    negative results are ignored). Only the LLM service and RF model init
+    are mocked to avoid external calls.
     """
 
     @pytest.mark.asyncio
@@ -196,9 +225,9 @@ class TestFacilitationE2E:
         self, e2e_client, facilitation_receiver
     ):
         """
-        Payload with two active groups, each with one active thread (5 messages).
-        Both threads trigger facilitation; the responses arrive in one batch POST
-        to the receiver.
+        Payload with two active groups (bypass=true), each with one active
+        thread (5 messages). Both threads produce facilitation; the responses
+        arrive in one batch POST to the localhost receiver.
         """
         receiver_url, received = facilitation_receiver
         headers = {"X-API-Key": settings.api_key}
@@ -206,21 +235,18 @@ class TestFacilitationE2E:
         payload = _payload([
             _group(901, [_thread("q-e2e-901", "How are you coping with caregiving?", 1, "u-901")]),
             _group(902, [_thread("q-e2e-902", "What support do you wish you had?", 1, "u-902")]),
-        ])
+        ], bypass=True)
 
-        mock_results = [
-            _facilitate("Sounds like you're all carrying a lot right now."),
-            _facilitate("What kind of support has made the biggest difference for you?"),
-        ]
+        # We use a single message for all LLM generate calls; each thread
+        # gets the same text since the mock doesn't vary per call.
+        facilitation_msg = "Sounds like you're all carrying a lot right now."
 
-        with (
-            patch.object(settings, "application_webhook_url", receiver_url),
-            patch.object(FacilitationDecisionPipeline, "__init__", return_value=None),
-            patch.object(
-                FacilitationDecisionPipeline, "run_pipeline",
-                new=AsyncMock(side_effect=mock_results),
-            ),
-        ):
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(patch.object(settings, "application_webhook_url", receiver_url))
+            stack.enter_context(patch.object(FacilitationDecisionPipeline, "__init__", _pipeline_init))
+            for p in _mock_llm_patches(facilitation_msg):
+                stack.enter_context(p)
+
             response = await e2e_client.post(
                 "/api/v1/messages/webhook", json=payload, headers=headers
             )
@@ -240,18 +266,17 @@ class TestFacilitationE2E:
         question_ids = {r["question_id"] for r in batch}
         assert question_ids == {"q-e2e-901", "q-e2e-902"}
 
-        contents = {r["content"] for r in batch}
-        assert "Sounds like you're all carrying a lot right now." in contents
-        assert "What kind of support has made the biggest difference for you?" in contents
+        assert all(r["content"] == facilitation_msg for r in batch)
 
     @pytest.mark.asyncio
     async def test_one_group_two_threads_each_produce_facilitation(
         self, e2e_client, facilitation_receiver
     ):
         """
-        Payload with one active group containing two active threads (5 messages each).
-        Both threads trigger facilitation; the responses arrive in one batch POST
-        with the same group_id but different question_ids.
+        Payload with one active group (bypass=true) containing two active
+        threads (5 messages each). Both threads produce facilitation; the
+        responses arrive in one batch POST with the same group_id but
+        different question_ids.
         """
         receiver_url, received = facilitation_receiver
         headers = {"X-API-Key": settings.api_key}
@@ -261,21 +286,16 @@ class TestFacilitationE2E:
                 _thread("q-e2e-903a", "How are you feeling today?", 1, "u-903"),
                 _thread("q-e2e-903b", "What does a good caregiving day look like?", 2, "u-903"),
             ]),
-        ])
+        ], bypass=True)
 
-        mock_results = [
-            _facilitate("It sounds like everyone is going through a lot."),
-            _facilitate("What does a peaceful day look like for you all?"),
-        ]
+        facilitation_msg = "It sounds like everyone is going through a lot."
 
-        with (
-            patch.object(settings, "application_webhook_url", receiver_url),
-            patch.object(FacilitationDecisionPipeline, "__init__", return_value=None),
-            patch.object(
-                FacilitationDecisionPipeline, "run_pipeline",
-                new=AsyncMock(side_effect=mock_results),
-            ),
-        ):
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(patch.object(settings, "application_webhook_url", receiver_url))
+            stack.enter_context(patch.object(FacilitationDecisionPipeline, "__init__", _pipeline_init))
+            for p in _mock_llm_patches(facilitation_msg):
+                stack.enter_context(p)
+
             response = await e2e_client.post(
                 "/api/v1/messages/webhook", json=payload, headers=headers
             )
@@ -295,9 +315,7 @@ class TestFacilitationE2E:
         question_ids = {r["question_id"] for r in batch}
         assert question_ids == {"q-e2e-903a", "q-e2e-903b"}
 
-        contents = {r["content"] for r in batch}
-        assert "It sounds like everyone is going through a lot." in contents
-        assert "What does a peaceful day look like for you all?" in contents
+        assert all(r["content"] == facilitation_msg for r in batch)
 
     @pytest.mark.asyncio
     async def test_temporal_simulation_normal_then_alarming(
@@ -331,12 +349,6 @@ class TestFacilitationE2E:
         headers = {"X-API-Key": settings.api_key}
 
         # ── Phase 1: normal conversation, messages spaced 30 min apart ──────────
-        # Temporal features at last message:
-        #   messages_last_30min  = 1   (only the last message itself)
-        #   messages_last_hour   = 2   (last two messages)
-        #   avg_gap_last_5_msgs  = 30 min
-        #   time_since_last_msg  = 30 min
-        # → RF trained on caregiver data should classify this as low-urgency
         first_payload = _payload([_group(GROUP_ID, [
             {
                 "question": {
@@ -378,11 +390,6 @@ class TestFacilitationE2E:
         ])])
 
         # ── Phase 2: alarming distress burst, ~5 hours later ─────────────────────
-        # Temporal features at last message (across all 10 stored messages):
-        #   messages_last_30min  = 5   (all new messages within 9 min of each other)
-        #   avg_gap_last_5_msgs  ≈ 2.25 min
-        #   time_since_last_msg  ≈ 2 min
-        # → RF should classify this dense burst as needing intervention
         second_payload = _payload([_group(GROUP_ID, [
             {
                 "question": {
@@ -423,11 +430,6 @@ class TestFacilitationE2E:
             }
         ])])
 
-        # Stage 1 runs for real on the temporal features above.
-        # Stage 2/3/4 are mocked — LLMService methods are patched at the class
-        # level so the pipeline calls them normally but no OpenAI call is made.
-        # Phase 1 exits at Stage 1 (should_facilitate=False) so Stage 2 is never
-        # called for it. Only Phase 2 reaches Stage 2, so a single entry suffices.
         stage2_results = [
             {
                 "needs_facilitation": True,
@@ -437,13 +439,6 @@ class TestFacilitationE2E:
             },
         ]
         safety_message = "Carol, what you're sharing sounds really heavy. We're here with you."
-
-        def _pipeline_init(self, *a, **kw):
-            # Skip loading the RF model from disk; set the one attribute the
-            # pipeline needs at runtime (llm_service). LLMService.__init__ is
-            # mocked below so no OpenAI connection is made.
-            self.llm_service = LLMService()
-            self.max_retries = 0
 
         with (
             patch.object(settings, "application_webhook_url", receiver_url),
