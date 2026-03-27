@@ -3,7 +3,7 @@ SQLAlchemy database models for AIEngine.
 Defines tables for groups, questions, messages, and facilitation logs.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum as PyEnum
 from typing import List, Optional, AsyncGenerator
 
@@ -50,10 +50,10 @@ class Group(Base):
     )
     group_name: Mapped[str] = mapped_column(String(256), default="")
     last_ai_message_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime, nullable=True
+        DateTime(timezone=True), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.now(), nullable=False
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
@@ -137,7 +137,7 @@ class GroupQuestion(Base):
     status: Mapped[str] = mapped_column(String(64), nullable=False)
     unlock_order: Mapped[int] = mapped_column(SmallInteger, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.now(), nullable=False
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
     )
 
     # Relationships
@@ -165,7 +165,7 @@ class User(Base):
     first_name: Mapped[str] = mapped_column(String(256), nullable=False)
     last_name: Mapped[str] = mapped_column(String(256), nullable=False, default="")
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.now(), nullable=False
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
     )
 
     # Relationships
@@ -194,7 +194,7 @@ class Member(Base):
         Integer, ForeignKey("users.id"), nullable=False, index=True
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.now(), nullable=False
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
     )
 
     # Relationships
@@ -223,10 +223,10 @@ class Message(Base):
         Integer, ForeignKey("users.id"), nullable=False, index=True
     )
     content: Mapped[str] = mapped_column(Text, nullable=False)
-    timestamp: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     is_ai: Mapped[bool] = mapped_column(Boolean, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.now(), nullable=False
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
     )
 
     # Relationships
@@ -253,7 +253,7 @@ class FacilitationLog(Base):
         Integer, ForeignKey("group_questions.id"), nullable=False, index=True
     )
     triggered_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.now(), nullable=False
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
     )
 
     # Stage results stored as JSON
@@ -269,7 +269,7 @@ class FacilitationLog(Base):
 
     # Generated facilitation message (if applicable)
     facilitation_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    message_sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    message_sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Relationships
     group: Mapped["Group"] = relationship("Group", back_populates="facilitation_logs")

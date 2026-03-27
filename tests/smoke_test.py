@@ -15,7 +15,8 @@ import httpx
 
 # Unique ID so smoke test data doesn't collide across runs
 RUN_ID = int(time.time()) % 100_000
-
+group_id = 177
+question_id = "884f8d90-bc63-4649-a316-2b956831dba4"
 
 def log(label: str, passed: bool, detail: str = ""):
     icon = "PASS" if passed else "FAIL"
@@ -111,7 +112,9 @@ class SmokeTestRunner:
 
     def test_webhook_save_and_read(self):
         """POST webhook stores data, GET logs retrieves it."""
-        group_id = 90_000 + RUN_ID
+        # group_id = 90_000 + RUN_ID
+        group_id = 177
+        question_id = "884f8d90-bc63-4649-a316-2b956831dba4"
         payload = {
             "payload": {
                 "groups_metadata": [
@@ -131,7 +134,7 @@ class SmokeTestRunner:
                         "threads": [
                             {
                                 "question": {
-                                    "id": f"smoke-q-{RUN_ID}",
+                                    "id": question_id,
                                     "text": "Smoke test question",
                                     "options": [],
                                     "status": "active",
@@ -205,27 +208,65 @@ class SmokeTestRunner:
                 f"status={r.status_code} body={r.text[:200]}",
             )
 
-    def test_group_activity_update(self):
-        """PATCH group_activity can deactivate a group."""
-        group_id = 90_000 + RUN_ID
+    def test_webhook_facilitation_bypass(self):
+        """POST webhook with 10 messages and bypass=True triggers facilitation."""
+        # group_id = 91_000 + RUN_ID
+        user_id = f"smoke-fac-user-{RUN_ID}"
+        group_id = 177
+        question_id = "884f8d90-bc63-4649-a316-2b956831dba4"
 
-        # Deactivate the group we created in the save test
-        r = self.client.patch(
-            f"{self.base_url}/api/v1/messages/group_activity",
-            json={"group_id": group_id, "is_active": False},
+        messages = [
+            {
+                "user_id": user_id,
+                "first_name": "Smoke",
+                "last_name": "Tester",
+                "content": f"Facilitation test message {i} run {RUN_ID}",
+                "created_at": f"2024-01-15T10:{i:02d}:00Z",
+                "is_ai": False,
+                "is_current_member": True,
+            }
+            for i in range(10)
+        ]
+        payload = {
+            "bypass": True,
+            "payload": {
+                "groups_metadata": [
+                    {"group_id": group_id, "status": "active", "status_updated_at": None}
+                ],
+                "groups": [
+                    {
+                        "group_id": group_id,
+                        "group_name": f"Smoke Facilitation Test {RUN_ID}",
+                        "members": [
+                            {"user_id": user_id, "first_name": "Smoke", "last_name": "Tester"}
+                        ],
+                        "threads": [
+                            {
+                                "question": {
+                                    "id": question_id,
+                                    "text": "What are your thoughts on this topic?",
+                                    "options": [],
+                                    "status": "active",
+                                    "unlock_order": 1,
+                                },
+                                "messages": messages,
+                                "last_ai_message_at": None,
+                            }
+                        ],
+                    }
+                ],
+            },
+        }
+
+        r = self.client.post(
+            f"{self.base_url}/api/v1/messages/webhook",
+            json=payload,
             headers=self._headers(),
         )
         self._check(
-            "group deactivate",
-            r.status_code == 200 and r.json().get("is_active") is False,
-            f"status={r.status_code} body={r.text[:200]}",
-        )
-
-        # Re-activate for cleanliness
-        self.client.patch(
-            f"{self.base_url}/api/v1/messages/group_activity",
-            json={"group_id": group_id, "is_active": True},
-            headers=self._headers(),
+            "facilitation bypass webhook",
+            r.status_code == 200,
+            f"status={r.status_code} body={r.text[:300]}",
         )
 
     # ------------------------------------------------------------------
@@ -246,7 +287,7 @@ class SmokeTestRunner:
             self.test_auth_rejected_with_bad_key,
             self.test_invalid_payload_returns_422,
             self.test_webhook_save_and_read,
-            self.test_group_activity_update,
+            self.test_webhook_facilitation_bypass,
         ]
 
         for test in tests:

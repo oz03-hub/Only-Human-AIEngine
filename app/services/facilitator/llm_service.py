@@ -193,7 +193,6 @@ class LLMService:
                     {"role": "system", "content": STAGE_4_SYSTEM_PROMPT},
                     {"role": "user", "content": user_prompt},
                 ],
-                temperature=0.2,
                 response_format={"type": "json_object"},
             )
 

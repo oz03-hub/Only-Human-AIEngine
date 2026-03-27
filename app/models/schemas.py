@@ -3,7 +3,7 @@ Pydantic schemas for request/response validation.
 Used by FastAPI for automatic validation and serialization.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Optional, List
 import re
 from pydantic import BaseModel, Field, ConfigDict, field_validator
@@ -283,7 +283,7 @@ class HealthCheckResponse(BaseModel):
     """Health check endpoint response."""
 
     status: str = "healthy"
-    timestamp: datetime = Field(default_factory=datetime.now())
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     version: str = "1.0.0"
 
 

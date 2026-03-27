@@ -113,7 +113,10 @@ class WebhookClient:
                     response = await client.post(
                         self.webhook_url,
                         json=payload,
-                        headers={"Content-Type": "application/json"},
+                        headers={
+                            "Content-Type": "application/json",
+                            "Authorization": f"Bearer {settings.api_key}",
+                        },
                     )
 
                     # Check if request was successful

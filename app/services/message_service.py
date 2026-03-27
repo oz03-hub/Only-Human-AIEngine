@@ -4,7 +4,7 @@ Handles all database operations related to messages, users, questions, and facil
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any, Set, Tuple
 
 from sqlalchemy import select, and_, desc
@@ -70,7 +70,7 @@ class MessageService:
             external_user_id=external_user_id,
             first_name=first_name,
             last_name=last_name,
-            created_at=datetime.now(),
+            created_at=datetime.now(timezone.utc),
         )
         self.session.add(user)
         await self.session.flush()
@@ -112,7 +112,7 @@ class MessageService:
         group = Group(
             external_id=external_id,
             group_name=group_name,
-            created_at=datetime.now(),
+            created_at=datetime.now(timezone.utc),
         )
         self.session.add(group)
         await self.session.flush()
@@ -189,7 +189,7 @@ class MessageService:
         member = Member(
             group_id=group.id,
             user_id=user.id,
-            created_at=datetime.now(),
+            created_at=datetime.now(timezone.utc),
         )
         self.session.add(member)
         await self.session.flush()
@@ -370,7 +370,7 @@ class MessageService:
             question_id=question.id,
             status=status,
             unlock_order=unlock_order,
-            created_at=datetime.now(),
+            created_at=datetime.now(timezone.utc),
         )
         self.session.add(group_question)
         await self.session.flush()
@@ -480,7 +480,7 @@ class MessageService:
             content=content,
             timestamp=timestamp,
             is_ai=is_ai,
-            created_at=datetime.now(),
+            created_at=datetime.now(timezone.utc),
         )
         self.session.add(message)
         await self.session.flush()
@@ -734,7 +734,7 @@ class MessageService:
         log = FacilitationLog(
             group_id=group.id,
             group_question_id=group_question.id,
-            triggered_at=datetime.now(),
+            triggered_at=datetime.now(timezone.utc),
             stage1_result=stage1_result,
             stage2_result=stage2_result,
             stage3_result=stage3_result,
