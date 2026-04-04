@@ -232,9 +232,10 @@ class LLMService:
 
         conversation_lines = []
         for msg in messages:
+            # Used in deployment
             if hasattr(msg, "timestamp"):
                 time_str = msg.timestamp.strftime("%H:%M")
-                sender_name = msg.user.first_name
+                sender_name = msg.user.first_name or "Unknown User"
                 sender_id = msg.user_id
                 content = msg.content
             else:

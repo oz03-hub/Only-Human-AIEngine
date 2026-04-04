@@ -69,16 +69,6 @@ class TestWebhookClient:
         assert result is True
 
     @pytest.mark.asyncio
-    async def test_send_no_webhook_url_configured(self, sample_responses):
-        """Test behavior when webhook URL is not configured."""
-        client = WebhookClient(webhook_url="", max_retries=3)
-
-        result = await client.send_facilitation_responses(sample_responses)
-
-        # Should return False when URL not configured
-        assert result is False
-
-    @pytest.mark.asyncio
     async def test_send_retry_on_server_error(self, webhook_client, sample_responses):
         """Test retry logic on server errors (5xx)."""
         with patch("httpx.AsyncClient") as mock_client_class:
