@@ -101,6 +101,7 @@ class FacilitationDecisionPipeline:
         logger.info(f"Loading trained model from {self.model_path}...")
         model_data = joblib.load(self.model_path)
         self.rf_model = model_data["model"]
+        self.rf_model.n_jobs = 1  # Disable parallel workers to avoid sklearn config propagation warning
         self.feature_names = model_data["feature_names"]
         logger.info(
             f"Model loaded successfully with {len(self.feature_names)} features"
