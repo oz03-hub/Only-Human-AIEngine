@@ -20,10 +20,10 @@ logger = logging.getLogger(__name__)
 class FacilitationService:
     """Runs the facilitation pipeline for conversation threads."""
 
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session: AsyncSession, pipeline: FacilitationDecisionPipeline):
         self.session = session
         self.message_service = MessageService(session)
-        self.pipeline = FacilitationDecisionPipeline()
+        self.pipeline = pipeline
 
     async def process_webhook_messages(
         self,

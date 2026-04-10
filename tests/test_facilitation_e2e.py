@@ -20,7 +20,7 @@ import contextlib
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import pytest_asyncio
@@ -197,6 +197,23 @@ async def e2e_client(db_engine):
     original_session_local = messages_module.AsyncSessionLocal
     messages_module.AsyncSessionLocal = test_session_maker
 
+    # Build a pipeline with a mock RF model but a real LLMService instance
+    # (uninitialized via __new__) so that per-test patch.object(LLMService, ...)
+    # calls still work — method lookup flows through the class.
+    mock_rf = MagicMock()
+    mock_rf.predict = MagicMock(return_value=[1])
+    mock_rf.predict_proba = MagicMock(return_value=[[0.3, 0.7]])
+    pipeline = object.__new__(FacilitationDecisionPipeline)
+    pipeline.model_path = "models/temporal_classifier.pkl"
+    pipeline.max_retries = 0
+    pipeline.rf_model = mock_rf
+    pipeline.feature_names = [
+        "messages_last_30min", "messages_last_hour", "messages_last_3hours",
+        "avg_gap_last_5_messages_min", "time_since_last_message_min",
+    ]
+    pipeline.llm_service = object.__new__(LLMService)
+    app.state.pipeline = pipeline
+
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c
@@ -243,7 +260,6 @@ class TestFacilitationE2E:
 
         with contextlib.ExitStack() as stack:
             stack.enter_context(patch.object(settings, "application_webhook_url", receiver_url))
-            stack.enter_context(patch.object(FacilitationDecisionPipeline, "__init__", _pipeline_init))
             for p in _mock_llm_patches(facilitation_msg):
                 stack.enter_context(p)
 
@@ -292,7 +308,6 @@ class TestFacilitationE2E:
 
         with contextlib.ExitStack() as stack:
             stack.enter_context(patch.object(settings, "application_webhook_url", receiver_url))
-            stack.enter_context(patch.object(FacilitationDecisionPipeline, "__init__", _pipeline_init))
             for p in _mock_llm_patches(facilitation_msg):
                 stack.enter_context(p)
 
@@ -442,7 +457,6 @@ class TestFacilitationE2E:
 
         with (
             patch.object(settings, "application_webhook_url", receiver_url),
-            patch.object(FacilitationDecisionPipeline, "__init__", _pipeline_init),
             patch.object(
                 FacilitationDecisionPipeline, "stage1_temporal_classification",
                 new=AsyncMock(side_effect=[

@@ -5,6 +5,7 @@ Implements the 3-stage decision process with early termination.
 
 import asyncio
 import logging
+from functools import partial
 from typing import List, Dict, Any, Optional, Callable, TypeVar
 import joblib
 import numpy as np
@@ -97,15 +98,23 @@ class FacilitationDecisionPipeline:
         self.model_path = model_path or settings.model_path
         self.max_retries = max_retries
 
-        # Load the trained Random Forest model
-        logger.info(f"Loading trained model from {self.model_path}...")
-        model_data = joblib.load(self.model_path)
-        self.rf_model = model_data["model"]
-        self.rf_model.n_jobs = 1  # Disable parallel workers to avoid sklearn config propagation warning
-        self.feature_names = model_data["feature_names"]
-        logger.info(
-            f"Model loaded successfully with {len(self.feature_names)} features"
-        )
+        # Model is loaded lazily on first use via _load_model() to avoid blocking at import time
+        self.rf_model = None
+        self.feature_names = None
+
+    async def _ensure_model_loaded(self) -> None:
+        """Load the Random Forest model off the event loop if not already loaded."""
+        if self.rf_model is None:
+            loop = asyncio.get_event_loop()
+            logger.info(f"Loading trained model from {self.model_path}...")
+            model_data = await loop.run_in_executor(
+                None, partial(joblib.load, self.model_path)
+            )
+            self.rf_model = model_data["model"]
+            self.feature_names = model_data["feature_names"]
+            logger.info(
+                f"Model loaded successfully with {len(self.feature_names)} features"
+            )
 
     def _extract_features_vector(self, features: Dict[str, Any]) -> np.ndarray:
         """
@@ -142,6 +151,8 @@ class FacilitationDecisionPipeline:
         logger.info("STAGE 1: Temporal Feature Classification")
         logger.info("=" * 60)
 
+        await self._ensure_model_loaded()
+
         # Extract features from the conversation
         extractor = TemporalFeatureExtractor(messages)
         features = extractor.extract_all_features()
@@ -156,9 +167,10 @@ class FacilitationDecisionPipeline:
         # Convert to feature vector
         X = self._extract_features_vector(features)
 
-        # Get prediction and probability
-        prediction = self.rf_model.predict(X)[0]
-        probabilities = self.rf_model.predict_proba(X)[0]
+        # Run synchronous sklearn calls off the event loop
+        loop = asyncio.get_event_loop()
+        prediction = (await loop.run_in_executor(None, partial(self.rf_model.predict, X)))[0]
+        probabilities = (await loop.run_in_executor(None, partial(self.rf_model.predict_proba, X)))[0]
         facilitation_probability = probabilities[1]  # Probability of class 1
 
         logger.info("Random Forest Decision:")

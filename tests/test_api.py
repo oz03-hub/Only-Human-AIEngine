@@ -5,7 +5,7 @@ Focus: verify that the webhook actually stores the correct entities in the datab
 
 import pytest
 import pytest_asyncio
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock, AsyncMock
 from httpx import AsyncClient, ASGITransport
 from sqlalchemy import select
 
@@ -83,6 +83,12 @@ async def client(db_session):
         yield db_session
 
     app.dependency_overrides[get_db] = override_get_db
+    mock_pipeline = MagicMock()
+    mock_pipeline.run_pipeline = AsyncMock(return_value={
+        "final_decision": "NO_FACILITATION", "facilitation_message": None,
+        "stage1": None, "stage2": None, "stage3": None, "stage4": None,
+    })
+    app.state.pipeline = mock_pipeline
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c

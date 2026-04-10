@@ -4,7 +4,7 @@ Tests for the facilitation service.
 
 import pytest
 import pytest_asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 from datetime import datetime, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -40,14 +40,9 @@ _NO_FACILITATION_RESULT = {
 @pytest_asyncio.fixture
 async def facilitation_service(db_session):
     """FacilitationService with the pipeline mocked out."""
-    with patch("app.services.facilitation_service.FacilitationDecisionPipeline") as MockPipeline:
-        mock_pipeline = MagicMock()
-        mock_pipeline.run_pipeline = AsyncMock(return_value=_FACILITATE_RESULT)
-        MockPipeline.return_value = mock_pipeline
-
-        service = FacilitationService(db_session)
-        service.pipeline = mock_pipeline
-        yield service
+    mock_pipeline = MagicMock()
+    mock_pipeline.run_pipeline = AsyncMock(return_value=_FACILITATE_RESULT)
+    yield FacilitationService(db_session, mock_pipeline)
 
 
 # ---------------------------------------------------------------------------

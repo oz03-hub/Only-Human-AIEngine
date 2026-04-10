@@ -3,7 +3,7 @@ Tests for the facilitation decision pipeline.
 """
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 from datetime import datetime, timedelta
 
 from app.services.facilitator.pipeline import (
@@ -98,25 +98,24 @@ def _make_pipeline(mock_llm_service, rf_predict=1, rf_proba=None):
     """Build a FacilitationDecisionPipeline with mocked model + LLM service."""
     if rf_proba is None:
         rf_proba = [[0.3, 0.7]]
-    with patch("app.services.facilitator.pipeline.joblib.load") as mock_load:
-        mock_rf = MagicMock()
-        mock_rf.predict = MagicMock(return_value=[rf_predict])
-        mock_rf.predict_proba = MagicMock(return_value=rf_proba)
-        mock_load.return_value = {
-            "model": mock_rf,
-            "feature_names": [
-                "messages_last_30min",
-                "messages_last_hour",
-                "messages_last_3hours",
-                "avg_gap_last_5_messages_min",
-                "time_since_last_message_min",
-            ],
-        }
-        return FacilitationDecisionPipeline(
-            llm_service=mock_llm_service,
-            model_path="models/temporal_classifier.pkl",
-            max_retries=1,
-        )
+    mock_rf = MagicMock()
+    mock_rf.predict = MagicMock(return_value=[rf_predict])
+    mock_rf.predict_proba = MagicMock(return_value=rf_proba)
+    pipeline = FacilitationDecisionPipeline(
+        llm_service=mock_llm_service,
+        model_path="models/temporal_classifier.pkl",
+        max_retries=1,
+    )
+    # Inject mock model directly so _ensure_model_loaded skips the actual file load
+    pipeline.rf_model = mock_rf
+    pipeline.feature_names = [
+        "messages_last_30min",
+        "messages_last_hour",
+        "messages_last_3hours",
+        "avg_gap_last_5_messages_min",
+        "time_since_last_message_min",
+    ]
+    return pipeline
 
 
 class TestFacilitationPipeline:

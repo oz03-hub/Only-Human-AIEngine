@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.models.database import init_db
 from app.api.routes import health, messages
+from app.services.facilitator.pipeline import FacilitationDecisionPipeline
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,12 @@ async def lifespan(app: FastAPI):
     # Initialize database tables
     await init_db()
     logger.info("Database initialized successfully")
+
+    # Load the facilitation pipeline once; shared across all background tasks
+    pipeline = FacilitationDecisionPipeline()
+    await pipeline._ensure_model_loaded()
+    app.state.pipeline = pipeline
+    logger.info("Facilitation pipeline loaded")
 
     yield
 

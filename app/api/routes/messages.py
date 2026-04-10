@@ -7,7 +7,7 @@ import logging
 import random
 from typing import Tuple, List
 
-from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.database import get_db, AsyncSessionLocal
@@ -20,6 +20,7 @@ from app.models.schemas import (
 )
 from app.services.message_service import MessageService
 from app.services.facilitation_service import FacilitationService
+from app.services.facilitator.pipeline import FacilitationDecisionPipeline
 from app.services.webhook_client import WebhookClient
 from app.api.middleware.auth import verify_api_key
 
@@ -30,6 +31,7 @@ router = APIRouter(prefix="/api/v1/messages", tags=["messages"])
 
 async def process_facilitation_background(
     group_question_id_pairs: List[Tuple[int, str]],
+    pipeline: FacilitationDecisionPipeline,
     bypass: bool = False,
 ) -> None:
     """
@@ -45,7 +47,7 @@ async def process_facilitation_background(
         # Create new database session for background task
         async with AsyncSessionLocal() as session:
             # Initialize services
-            facilitation_service = FacilitationService(session)
+            facilitation_service = FacilitationService(session, pipeline)
             webhook_client = WebhookClient()
 
             # Process facilitation for all threads
@@ -240,96 +242,6 @@ async def save_messages(
         )
 
 
-EXAMPLE_PAYLOAD = WebhookIncomingRequest(
-    payload={
-        "groups_metadata": [
-            {"group_id": 2, "status": "active", "status_updated_at": None},
-        ],
-        "groups": [
-            {
-                "group_id": 2,
-                "group_name": "Item 2 Chat",
-                "members": [
-                    {
-                        "user_id": "e1000000-e5ef-4758-a0e3-e19a009b2853",
-                        "first_name": "Cristina",
-                        "last_name": None,
-                    },
-                    {
-                        "user_id": "50000000-780a-473c-91fc-b0043688eefc",
-                        "first_name": "Michelle",
-                        "last_name": None,
-                    },
-                ],
-                "threads": [
-                    {
-                        "question": {
-                            "id": "f0000000-3e89-481e-b3f6-7082fdae2af5",
-                            "text": "Do your feelings of responsibility to others help you through your darkest struggles or add to your burdens? How so?",
-                            "options": ["Helps me . . .", "Burdens me . . .", "Actually . . ."],
-                            "status": "active",
-                            "unlock_order": 3,
-                        },
-                        "messages": [
-                            {
-                                "user_id": "e1000000-e5ef-4758-a0e3-e19a009b2853",
-                                "first_name": "Cristina",
-                                "last_name": None,
-                                "content": "<highlight>Burdens me . . .</highlight> I feel nothing but pressure when it comes to this type of responsability",
-                                "created_at": "2026-02-16 08:56:44.292422+00:00",
-                                "is_ai": False,
-                                "is_current_member": True,
-                            },
-                            {
-                                "user_id": "60000000-0983-42e0-ab2b-bbcd15d0cc2b",
-                                "first_name": None,
-                                "last_name": None,
-                                "content": "<highlight>Helps me . . .</highlight> It's cool to know you can influence people into making good decisions",
-                                "created_at": "2026-02-16 09:02:26.287041+00:00",
-                                "is_ai": False,
-                                "is_current_member": False,
-                            },
-                            {
-                                "user_id": "50000000-780a-473c-91fc-b0043688eefc",
-                                "first_name": "Michelle",
-                                "last_name": None,
-                                "content": "<highlight>Actually . . .</highlight> Not really sure",
-                                "created_at": "2026-02-16 09:26:54.603603+00:00",
-                                "is_ai": False,
-                                "is_current_member": True,
-                            },
-                        ],
-                        "last_ai_message_at": None,
-                    }
-                ],
-            }
-        ],
-    }
-)
-
-
-@router.post(
-    "/trigger",
-    response_model=WebhookResponse,
-    status_code=status.HTTP_200_OK,
-    summary="Manually trigger facilitation pipeline",
-    description="Development endpoint to manually trigger the full webhook + facilitation pipeline. Defaults to an example payload if none is provided.",
-)
-async def trigger_facilitation(
-    background_tasks: BackgroundTasks,
-    request: WebhookIncomingRequest = Body(default=EXAMPLE_PAYLOAD),
-    session: AsyncSession = Depends(get_db),
-    _api_key: str = Depends(verify_api_key),
-):
-    """
-    Manually trigger the facilitation pipeline for testing.
-
-    Accepts the same payload as /webhook. If no body is sent, uses the built-in
-    example payload so you can test without constructing data by hand.
-    """
-    return await receive_messages_webhook(request, background_tasks, session, _api_key)
-
-
 @router.post(
     "/webhook",
     response_model=WebhookResponse,
@@ -338,6 +250,7 @@ async def trigger_facilitation(
     description="Webhook endpoint that receives and stores messages, then triggers facilitation in background. Returns 200 OK immediately.",
 )
 async def receive_messages_webhook(
+    fastapi_request: Request,
     request: WebhookIncomingRequest,
     background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_db),
@@ -375,19 +288,23 @@ async def receive_messages_webhook(
 
         logger.info("Successfully stored messages.")
 
-        # Collect active threads from this payload
+        # Collect active threads from this payload that have new messages and
+        # whose last message is not from AI (threads where AI already spoke last need no action)
         payload_active_pairs = {
             (group.group_id, thread.question.id)
             for group in request.payload.groups
             for thread in group.threads
             if thread.question.status == "active"
+            and thread.messages
+            and not thread.messages[-1].is_ai
         }
 
-        # Also include active threads from DB not in the payload, with 20% probability
+        # Check-in: randomly sample from all other active threads (including those
+        # where last message was AI or threads not present in this payload)
         other_active_pairs = await message_service.get_active_group_questions_not_in(
             payload_active_pairs
         )
-        sampled_pairs = [p for p in other_active_pairs if random.random() < 0.2]
+        sampled_pairs = [p for p in other_active_pairs if random.random() < 0.05]
 
         all_pairs = list(payload_active_pairs) + sampled_pairs
         logger.info(
@@ -396,7 +313,8 @@ async def receive_messages_webhook(
         )
 
         # Add background task to process facilitation
-        background_tasks.add_task(process_facilitation_background, all_pairs, request.bypass)
+        pipeline = fastapi_request.app.state.pipeline
+        background_tasks.add_task(process_facilitation_background, all_pairs, pipeline, request.bypass)
         logger.info("Added facilitation processing to background tasks")
 
         # Return immediately with success

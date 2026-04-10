@@ -39,7 +39,7 @@ class LLMService:
         self.stage_2_model = settings.stage_2_model
         self.stage_3_model = settings.stage_3_model
         self.stage_4_model = settings.stage_4_model
-        self.client = AsyncOpenAI(api_key=self.api_key)
+        self.client = AsyncOpenAI(api_key=self.api_key, timeout=60.0)
         logger.debug(f"LLM service initialized with models: stage2={self.stage_2_model}, stage3={self.stage_3_model}, stage4={self.stage_4_model}")
 
     async def verify_facilitation_needed(
