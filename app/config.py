@@ -35,7 +35,7 @@ class Settings(BaseSettings):
 
     # Facilitation
     min_messages: int = Field(
-        default=5,
+        default=1,
         description="Minimum number of messages to start the facilitation",
     )
 

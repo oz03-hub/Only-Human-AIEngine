@@ -278,6 +278,7 @@ async def receive_messages_webhook(
         Success response with count of messages and groups and question threads affected
     """
     logger.info(f"Received webhook with {len(request.payload.groups)} groups")
+    logger.info(f"Payload Content: {request.payload}")
 
     try:
         # Store messages and sync state
@@ -309,7 +310,7 @@ async def receive_messages_webhook(
         all_pairs = list(payload_active_pairs) + sampled_pairs
         logger.info(
             f"Facilitation targets: {len(payload_active_pairs)} from payload, "
-            f"{len(sampled_pairs)} sampled from {len(other_active_pairs)} other active threads"
+            f"{len(sampled_pairs)} {sampled_pairs} sampled from {len(other_active_pairs)} other active threads"
         )
 
         # Add background task to process facilitation
