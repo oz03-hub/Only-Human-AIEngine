@@ -1,335 +1,215 @@
-# GCP Cloud Run Deployment Guide
+# Deployment
 
-This guide walks through deploying AIEngine to Google Cloud Platform using Cloud Run and Cloud SQL.
+AIEngine runs on GCP Cloud Run (us-central1) backed by Cloud SQL (PostgreSQL 18).
 
-## Prerequisites
+## Current infrastructure
 
-1. **GCP Project** with billing enabled
-2. **gcloud CLI** installed and authenticated: `gcloud auth login`
-3. **Docker** installed locally
-4. **GCP APIs enabled**:
-   ```bash
-   gcloud services enable \
-     run.googleapis.com \
-     sqladmin.googleapis.com \
-     secretmanager.googleapis.com \
-     cloudbuild.googleapis.com \
-     artifactregistry.googleapis.com
-   ```
+| Resource | Name | Details |
+|---|---|---|
+| Cloud Run (prod) | `aiengine-prod` | 1 CPU, 1Gi RAM, 1 instance, concurrency 20 |
+| Cloud Run (staging) | `aiengine` | 1 CPU, 1Gi RAM, 1 instance, concurrency 20 |
+| Cloud SQL | `aiengine-db` | PostgreSQL 18, `db-f1-micro`, `us-central1-a` |
+| Artifact Registry | `aiengine` | Docker, `us-central1` |
+| Service Account | `aiengine-sa` | Roles: `cloudsql.client`, `secretmanager.secretAccessor` |
+| GCP Project | `project-80a32569-9882-44bc-933` | |
 
-## Step 1: Set Up Environment Variables
+Staging points to the Vercel dev frontend. Prod points to `https://app.onlyhuman.us/`.
 
-```bash
-export PROJECT_ID="your-gcp-project-id"
-export REGION="us-central1"  # Choose your region
-export SERVICE_NAME="aiengine"
-export DB_INSTANCE_NAME="aiengine-db"
-export DB_NAME="aiengine"
-export DB_USER="aiengine_user"
+Both Cloud Run services share the same Cloud SQL instance but use separate database secrets (`database-url` vs `prod-database-url`).
 
-gcloud config set project $PROJECT_ID
-```
+### Why CPU is always allocated
 
-## Step 2: Create Cloud SQL Instance
+Cloud Run throttles CPU to near-zero after an HTTP response is returned. The webhook endpoint responds 200 immediately and then runs the facilitation pipeline inside FastAPI's `BackgroundTasks`. Without `--no-cpu-throttling` / `CPU is always allocated`, the background task gets starved mid-pipeline (OpenAI calls, DB writes). This is the single most important config detail.
 
-### 2.1 Create PostgreSQL instance
+Since `min-instances=1` keeps the container alive anyway, always-on CPU adds no cost.
 
-```bash
-gcloud sql instances create $DB_INSTANCE_NAME \
-  --database-version=POSTGRES_16 \
-  --tier=db-f1-micro \
-  --region=$REGION \
-  --storage-type=SSD \
-  --storage-size=10GB \
-  --storage-auto-increase \
-  --backup-start-time=03:00 \
-  --maintenance-window-day=SUN \
-  --maintenance-window-hour=4
-```
+---
 
-**Note**: Use `db-f1-micro` for dev/testing. For production, use `db-custom-2-7680` or higher.
+## Secrets (Secret Manager)
 
-### 2.2 Create database and user
+| Secret name | Used by |
+|---|---|
+| `openai-api-key` | Both services |
+| `api-key` | Both services |
+| `database-url` | Staging |
+| `prod-database-url` | Prod |
+
+---
+
+## Deploying a new version
 
 ```bash
-# Set root password
-gcloud sql users set-password postgres \
-  --instance=$DB_INSTANCE_NAME \
-  --password="CHANGE_ME_SECURE_PASSWORD"
+export PROJECT_ID="project-80a32569-9882-44bc-933"
+export REGION="us-central1"
+export REPO="us-central1-docker.pkg.dev/$PROJECT_ID/aiengine/aiengine"
 
-# Create database
-gcloud sql databases create $DB_NAME \
-  --instance=$DB_INSTANCE_NAME
+# Build and push
+docker build -t $REPO:latest .
+docker push $REPO:latest
 
-# Create application user
-gcloud sql users create $DB_USER \
-  --instance=$DB_INSTANCE_NAME \
-  --password="CHANGE_ME_SECURE_PASSWORD"
+# Deploy to prod
+gcloud run services update aiengine-prod \
+  --image=$REPO:latest \
+  --region=$REGION
+
+# Deploy to staging
+gcloud run services update aiengine \
+  --image=$REPO:latest \
+  --region=$REGION
 ```
 
-### 2.3 Get connection name
+Or use `build_and_push.sh` (not tracked in git) which wraps the above.
+
+---
+
+## Deploying from scratch
+
+### 1. Enable APIs
 
 ```bash
-gcloud sql instances describe $DB_INSTANCE_NAME --format="value(connectionName)"
-# Output: PROJECT_ID:REGION:INSTANCE_NAME
+gcloud services enable \
+  run.googleapis.com \
+  sqladmin.googleapis.com \
+  secretmanager.googleapis.com \
+  artifactregistry.googleapis.com
 ```
 
-## Step 3: Store Secrets in Secret Manager
-
-```bash
-# Create OpenAI API Key secret
-echo -n "sk-proj-YOUR_OPENAI_KEY" | \
-  gcloud secrets create openai-api-key --data-file=-
-
-# Create API Key secret (generate secure key first)
-openssl rand -base64 32 | \
-  gcloud secrets create api-key --data-file=-
-
-# Grant Cloud Run access to secrets
-gcloud secrets add-iam-policy-binding openai-api-key \
-  --member="serviceAccount:aiengine-sa@$PROJECT_ID.iam.gserviceaccount.com" \
-  --role="roles/secretmanager.secretAccessor"
-
-gcloud secrets add-iam-policy-binding api-key \
-  --member="serviceAccount:aiengine-sa@$PROJECT_ID.iam.gserviceaccount.com" \
-  --role="roles/secretmanager.secretAccessor"
-```
-
-## Step 4: Create Service Account
-
-```bash
-# Create service account
-gcloud iam service-accounts create aiengine-sa \
-  --display-name="AIEngine Service Account"
-
-# Grant Cloud SQL Client role
-gcloud projects add-iam-policy-binding $PROJECT_ID \
-  --member="serviceAccount:aiengine-sa@$PROJECT_ID.iam.gserviceaccount.com" \
-  --role="roles/cloudsql.client"
-```
-
-## Step 5: Build and Push Docker Image
-
-### 5.1 Create Artifact Registry repository
+### 2. Create Artifact Registry repo
 
 ```bash
 gcloud artifacts repositories create aiengine \
   --repository-format=docker \
-  --location=$REGION \
-  --description="AIEngine Docker repository"
+  --location=us-central1
+
+gcloud auth configure-docker us-central1-docker.pkg.dev
 ```
 
-### 5.2 Configure Docker authentication
+### 3. Create Cloud SQL instance
 
 ```bash
-gcloud auth configure-docker $REGION-docker.pkg.dev
+gcloud sql instances create aiengine-db \
+  --database-version=POSTGRES_18 \
+  --tier=db-f1-micro \
+  --region=us-central1 \
+  --zone=us-central1-a \
+  --storage-type=SSD \
+  --storage-size=10GB \
+  --storage-auto-increase \
+  --backup-start-time=03:00
+
+gcloud sql databases create aiengine --instance=aiengine-db
+gcloud sql databases create aiengine_staging --instance=aiengine-db
+
+gcloud sql users create aiengine_user \
+  --instance=aiengine-db \
+  --password="CHANGE_ME"
 ```
 
-### 5.3 Build and push image
-
+Get the connection name for use in `DATABASE_URL`:
 ```bash
-# Build image
-docker build -t $REGION-docker.pkg.dev/$PROJECT_ID/aiengine/aiengine:latest .
-
-# Push to Artifact Registry
-docker push $REGION-docker.pkg.dev/$PROJECT_ID/aiengine/aiengine:latest
+gcloud sql instances describe aiengine-db --format="value(connectionName)"
+# project-80a32569-9882-44bc-933:us-central1:aiengine-db
 ```
 
-## Step 6: Update Cloud Run Service Configuration
-
-Edit `cloudrun-service.yaml` and replace placeholders:
-- `PROJECT_ID` → Your GCP project ID
-- `REGION` → Your chosen region (e.g., us-central1)
-- `INSTANCE_NAME` → Your Cloud SQL instance name
-- `USER` → Database user (e.g., aiengine_user)
-- `PASSWORD` → Database password
-- `DATABASE` → Database name (e.g., aiengine)
-
-## Step 7: Deploy to Cloud Run
-
-### Option A: Using service.yaml (recommended)
-
-```bash
-gcloud run services replace cloudrun-service.yaml \
-  --region=$REGION
+`DATABASE_URL` format for Cloud Run (uses Unix socket via Cloud SQL proxy sidecar):
+```
+postgresql+asyncpg://aiengine_user:PASSWORD@/aiengine?host=/cloudsql/project-80a32569-9882-44bc-933:us-central1:aiengine-db
 ```
 
-### Option B: Using gcloud command
+### 4. Create service account and secrets
 
 ```bash
-gcloud run deploy $SERVICE_NAME \
-  --image=$REGION-docker.pkg.dev/$PROJECT_ID/aiengine/aiengine:latest \
-  --platform=managed \
-  --region=$REGION \
-  --service-account=aiengine-sa@$PROJECT_ID.iam.gserviceaccount.com \
-  --add-cloudsql-instances=$PROJECT_ID:$REGION:$DB_INSTANCE_NAME \
-  --set-env-vars="DATABASE_URL=postgresql+asyncpg://$DB_USER:PASSWORD@/$DB_NAME?host=/cloudsql/$PROJECT_ID:$REGION:$DB_INSTANCE_NAME" \
-  --set-secrets="OPENAI_API_KEY=openai-api-key:latest,API_KEY=api-key:latest" \
-  --set-env-vars="ENV=production,LOG_LEVEL=INFO,MODEL_PATH=models/temporal_classifier.pkl" \
-  --cpu=1 \
-  --memory=512Mi \
+gcloud iam service-accounts create aiengine-sa \
+  --display-name="AIEngine Service Account"
+
+SA="aiengine-sa@project-80a32569-9882-44bc-933.iam.gserviceaccount.com"
+
+gcloud projects add-iam-policy-binding project-80a32569-9882-44bc-933 \
+  --member="serviceAccount:$SA" --role="roles/cloudsql.client"
+
+# Create secrets
+echo -n "sk-proj-..." | gcloud secrets create openai-api-key --data-file=-
+openssl rand -hex 32 | gcloud secrets create api-key --data-file=-
+echo -n "postgresql+asyncpg://..." | gcloud secrets create database-url --data-file=-
+echo -n "postgresql+asyncpg://..." | gcloud secrets create prod-database-url --data-file=-
+
+# Grant access
+for SECRET in openai-api-key api-key database-url prod-database-url; do
+  gcloud secrets add-iam-policy-binding $SECRET \
+    --member="serviceAccount:$SA" \
+    --role="roles/secretmanager.secretAccessor"
+done
+```
+
+### 5. Deploy Cloud Run services
+
+```bash
+IMAGE="us-central1-docker.pkg.dev/project-80a32569-9882-44bc-933/aiengine/aiengine:latest"
+SA="aiengine-sa@project-80a32569-9882-44bc-933.iam.gserviceaccount.com"
+SQL_CONN="project-80a32569-9882-44bc-933:us-central1:aiengine-db"
+
+# Prod
+gcloud run deploy aiengine-prod \
+  --image=$IMAGE \
+  --region=us-central1 \
+  --service-account=$SA \
+  --add-cloudsql-instances=$SQL_CONN \
+  --set-env-vars="ENV=production,LOG_LEVEL=INFO,APPLICATION_WEBHOOK_URL=https://app.onlyhuman.us/" \
+  --set-secrets="OPENAI_API_KEY=openai-api-key:latest,API_KEY=api-key:latest,DATABASE_URL=prod-database-url:latest" \
+  --cpu=1 --memory=1Gi \
   --timeout=300 \
-  --min-instances=1 \
-  --max-instances=1 \
+  --concurrency=20 \
+  --min-instances=1 --max-instances=1 \
+  --no-cpu-throttling \
+  --allow-unauthenticated
+
+# Staging
+gcloud run deploy aiengine \
+  --image=$IMAGE \
+  --region=us-central1 \
+  --service-account=$SA \
+  --add-cloudsql-instances=$SQL_CONN \
+  --set-env-vars="ENV=production,LOG_LEVEL=INFO,APPLICATION_WEBHOOK_URL=https://next-fullstack-template-git-dev-vsp-socratic-sciences.vercel.app" \
+  --set-secrets="OPENAI_API_KEY=openai-api-key:latest,API_KEY=api-key:latest,DATABASE_URL=database-url:latest" \
+  --cpu=1 --memory=1Gi \
+  --timeout=300 \
+  --concurrency=20 \
+  --min-instances=1 --max-instances=1 \
   --no-cpu-throttling \
   --allow-unauthenticated
 ```
 
-### Scaling Notes
+### 6. Run migrations
 
-**Why `--min-instances=1`:** Keeps the instance always warm. Cold starts load the Random Forest model (`joblib.load`) and initialize the DB connection pool, adding several seconds of latency on first request.
+Migrations run automatically on startup (Dockerfile `CMD` runs `alembic upgrade head` before starting uvicorn).
 
-**Why `--max-instances=1`:** The facilitation pipeline is sequential LLM calls (stages 2–4), so adding more instances does not reduce per-request latency. The only benefit of scaling out would be handling concurrent incoming webhooks, which at current scale (~50 users, 20-min polling interval) will essentially never happen. One instance is sufficient.
-
-**Why `--no-cpu-throttling`:** By default, Cloud Run throttles CPU after the HTTP response is sent. The webhook returns 200 immediately and hands off to FastAPI's `BackgroundTasks`, which then runs the facilitation pipeline. Without this flag, the background task gets CPU-starved mid-pipeline. With `--min-instances=1` you are paying for the idle instance regardless, so always-on CPU costs nothing extra.
-
-**Do we need Cloud Tasks?** No, not at this scale. `BackgroundTasks` + `--no-cpu-throttling` is sufficient. Cloud Tasks would add guaranteed delivery and retry semantics but also adds infra complexity. Revisit if the number of groups grows significantly or if silent pipeline failures become a concern.
-
-## Step 8: Run Database Migrations
-
-The Dockerfile automatically runs migrations on startup via:
+To run manually via Cloud SQL proxy:
 ```bash
-alembic upgrade head
-```
-
-To manually run migrations:
-
-```bash
-# Connect to Cloud SQL via proxy
-cloud-sql-proxy $PROJECT_ID:$REGION:$DB_INSTANCE_NAME &
-
-# Run migrations locally
-DATABASE_URL="postgresql+asyncpg://$DB_USER:PASSWORD@localhost/$DB_NAME" \
+cloud-sql-proxy project-80a32569-9882-44bc-933:us-central1:aiengine-db &
+DATABASE_URL="postgresql+asyncpg://aiengine_user:PASSWORD@localhost/aiengine" \
   alembic upgrade head
 ```
 
-## Step 9: Verify Deployment
+---
+
+## Verify
 
 ```bash
-# Get service URL
-SERVICE_URL=$(gcloud run services describe $SERVICE_NAME \
-  --region=$REGION \
-  --format="value(status.url)")
+# Health check
+curl https://aiengine-prod-568669320764.us-central1.run.app/health
 
-echo "Service URL: $SERVICE_URL"
-
-# Test health endpoint
-curl $SERVICE_URL/health
-
-# Test API with authentication
-curl -H "X-API-Key: YOUR_API_KEY" $SERVICE_URL/api/endpoint
+# View recent logs
+gcloud run services logs read aiengine-prod --region=us-central1 --limit=50
 ```
 
-## Step 10: Set Up Continuous Deployment (Optional)
-
-### Using Cloud Build
-
-Create `cloudbuild.yaml`:
-
-```yaml
-steps:
-  # Build Docker image
-  - name: 'gcr.io/cloud-builders/docker'
-    args: ['build', '-t', '${_REGION}-docker.pkg.dev/$PROJECT_ID/aiengine/aiengine:$SHORT_SHA', '.']
-
-  # Push to Artifact Registry
-  - name: 'gcr.io/cloud-builders/docker'
-    args: ['push', '${_REGION}-docker.pkg.dev/$PROJECT_ID/aiengine/aiengine:$SHORT_SHA']
-
-  # Deploy to Cloud Run
-  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-    entrypoint: gcloud
-    args:
-      - 'run'
-      - 'deploy'
-      - '${_SERVICE_NAME}'
-      - '--image=${_REGION}-docker.pkg.dev/$PROJECT_ID/aiengine/aiengine:$SHORT_SHA'
-      - '--region=${_REGION}'
-      - '--platform=managed'
-
-substitutions:
-  _SERVICE_NAME: aiengine
-  _REGION: us-central1
-
-images:
-  - '${_REGION}-docker.pkg.dev/$PROJECT_ID/aiengine/aiengine:$SHORT_SHA'
-```
-
-Connect to GitHub:
-```bash
-gcloud builds triggers create github \
-  --repo-name=AIEngine \
-  --repo-owner=YOUR_GITHUB_USERNAME \
-  --branch-pattern="^main$" \
-  --build-config=cloudbuild.yaml
-```
-
-## Monitoring and Logging
-
-### View logs
-```bash
-gcloud run services logs read $SERVICE_NAME --region=$REGION --limit=50
-```
-
-### Monitor in Cloud Console
-- **Cloud Run**: https://console.cloud.google.com/run
-- **Cloud SQL**: https://console.cloud.google.com/sql
-- **Logs**: https://console.cloud.google.com/logs
-
-## Cost Optimization
-
-### Development/Staging
-- Cloud SQL: `db-f1-micro` (~$10/month)
-- Cloud Run: `minScale: 0` (scales to zero when idle)
-- CPU: 1 CPU, 512Mi memory
-
-### Production
-- Cloud SQL: `db-custom-2-7680` or higher with high availability
-- Cloud Run: `minScale: 1` (always-on for faster response)
-- CPU: 2-4 CPUs, 2-4Gi memory
-
-## Troubleshooting
-
-### Cannot connect to Cloud SQL
-1. Verify Cloud SQL Proxy annotation in `cloudrun-service.yaml`
-2. Check service account has `roles/cloudsql.client` role
-3. Verify `DATABASE_URL` format matches: `postgresql+asyncpg://USER:PASSWORD@/DB?host=/cloudsql/CONNECTION_NAME`
-
-### Migrations failing on startup
-1. Manually run migrations via Cloud SQL Proxy
-2. Check database user has necessary permissions
-3. Review logs: `gcloud run services logs read $SERVICE_NAME`
-
-### Secrets not accessible
-1. Verify secrets exist: `gcloud secrets list`
-2. Check service account has `roles/secretmanager.secretAccessor`
-3. Verify secret references in `cloudrun-service.yaml`
+---
 
 ## Rollback
 
 ```bash
-# List revisions
-gcloud run revisions list --service=$SERVICE_NAME --region=$REGION
+gcloud run revisions list --service=aiengine-prod --region=us-central1
 
-# Rollback to previous revision
-gcloud run services update-traffic $SERVICE_NAME \
+gcloud run services update-traffic aiengine-prod \
   --to-revisions=REVISION_NAME=100 \
-  --region=$REGION
-```
-
-## Cleanup
-
-```bash
-# Delete Cloud Run service
-gcloud run services delete $SERVICE_NAME --region=$REGION
-
-# Delete Cloud SQL instance
-gcloud sql instances delete $DB_INSTANCE_NAME
-
-# Delete secrets
-gcloud secrets delete openai-api-key
-gcloud secrets delete api-key
-
-# Delete Artifact Registry repository
-gcloud artifacts repositories delete aiengine --location=$REGION
+  --region=us-central1
 ```
