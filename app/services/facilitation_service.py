@@ -115,6 +115,13 @@ class FacilitationService:
             )
             return None
 
+        if not bypass and messages[-1].is_ai:
+            logger.info(
+                f"Group {group_external_id}, question {question_external_id}: "
+                "last message is from facilitator, skipping"
+            )
+            return None
+
         logger.info(
             f"Running facilitation pipeline for group {group_external_id}, "
             f"question {question_external_id} ({len(messages)} messages)"
